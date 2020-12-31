@@ -57,9 +57,10 @@ function on_input(self, action_id, action)
 	-- if action_id == hash("touch") and action.pressed then
 	-- 	print("Touch!")
 	-- end
-	-- if action_id == hash("q") and action.released then
-	-- 	os.exit()
-	-- end
+	-- for quick exit if run in editor
+	if action_id == hash("q") and action.released and os.getenv("DM_SERVICE_PORT") == "dynamic" then
+		os.exit()
+	end
 end
 
 function on_message(self, message_id, message, sender)

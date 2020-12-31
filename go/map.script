@@ -76,6 +76,10 @@ function init(self)
 		 map_data.offset[i][2], 1))
 		go.set_parent(offset_texts[i], provinces.provinces[i])
 		label.set_text(offset_texts[i], i)
+
+		if provinces.provinces_data[i].water then
+			sprite.set_constant(provinces.provinces[i], "tint", water_color)
+		end
 	end
 end
 
@@ -266,7 +270,11 @@ function cursor(self, action)
 			if check_click.check(provinces.provinces[k], pos.x, pos.y, tostring(k)) then
 				if last_province then
 					go.set(msg.url(nil, offset_texts[last_province], "label"), "color", vmath.vector4(1, 1, 1, 1))
-					sprite.set_constant(provinces.provinces[last_province], "tint", vmath.vector4(1, 1, 1,1))
+					if provinces.provinces_data[k].water then
+						sprite.set_constant(provinces.provinces[last_province], "tint", water_color)
+					else
+						sprite.set_constant(provinces.provinces[last_province], "tint", vmath.vector4(1, 1, 1,1))
+					end
 				end
 				last_province = k
 				go.set(msg.url(nil, offset_texts[k], "label"), "color", vmath.vector4(1, 0, 0, 1))

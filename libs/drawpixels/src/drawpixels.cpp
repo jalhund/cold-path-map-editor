@@ -2073,8 +2073,8 @@ static void export_province(Color & color, int n, char * file_path, bool generat
     return;
   }
 
-  fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d]}", texture_size, texture_size,
-    min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2);
+  fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d],\"water\":%s}", texture_size, texture_size,
+    min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2, color.b >= 225 ? "true" : "false");
   printf("Set position: %d, %d, %d, %d\n", min_x, max_x, min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2);
   fclose(fp);
 

@@ -1,7 +1,7 @@
 local M = {}
 
 M.provinces = {}
-local provinces_data = {}
+M.provinces_data = {}
 
 local check_click = require "scripts.check_click"
 local positions_in_atlas = require "go.positions_in_atlas"
@@ -20,15 +20,15 @@ function M.init(self, map_data)
 	for i = 1, map_data.num_of_provinces do
 		file = io.open(IMAGE_DATA_PATH.."exported_map/description/"..i, "r")
 		data = file:read("*a")
-		provinces_data[i] = json.decode(data)
-		pprint("Province data:", provinces_data[i])
-		pos = vmath.vector3(provinces_data[i].position[1],
-			provinces_data[i].position[2], 0)
+		M.provinces_data[i] = json.decode(data)
+		pprint("Province data:", M.provinces_data[i])
+		pos = vmath.vector3(M.provinces_data[i].position[1],
+			M.provinces_data[i].position[2], 0)
 		M.provinces[i] = factory.create("/factories#province_factory", pos)
 		go.set(msg.url(nil, M.provinces[i],"sprite"), "material", self.distancefield)
 		print("Add province: ", i)
-		check_click.load_from_file(tostring(i), IMAGE_DATA_PATH.."exported_map/generated_data/"..i, provinces_data[i].size[1]
-			* provinces_data[i].size[2])
+		check_click.load_from_file(tostring(i), IMAGE_DATA_PATH.."exported_map/generated_data/"..i, M.provinces_data[i].size[1]
+			* M.provinces_data[i].size[2])
 	end
 end
 
@@ -61,11 +61,10 @@ function M.late_init(self, map_data)
 
 	local resource_path
 	for i = 1, map_data.num_of_provinces do
-		-- print("Province: ", provinces_data[i].size[1], provinces_data[i].size[2])
-		local size = provinces_data[i].size[1]
+		local size = M.provinces_data[i].size[1]
 		used[size] = used[size] + 1
 		drawpixels.get_file_data(buffers[size], IMAGE_DATA_PATH.."exported_map/blurred_data/"..i,
-			 provinces_data[i].size[1], provinces_data[i].size[2], size, used[size])
+			 M.provinces_data[i].size[1], M.provinces_data[i].size[2], size, used[size])
 
 		sprite.play_flipbook(M.provinces[i], tostring(positions_in_atlas[size][used[size]]))
 		go.set(msg.url(nil, M.provinces[i],"sprite"), "image", self["atlas_"..size])
