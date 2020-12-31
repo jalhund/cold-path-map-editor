@@ -1,0 +1,99 @@
+# App manifest generated Fri Oct 16 2020 12:10:35 GMT+0300 (Москва, стандартное время)
+# Settings: Physics2D,Physics3D,Record,OpenGL
+platforms:
+    x86_64-osx:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            frameworks: []
+            linkFlags: []
+
+    x86_64-linux:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            linkFlags: []
+
+    js-web:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeJsLibs: []
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            linkFlags: []
+
+    wasm-web:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeJsLibs: []
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            linkFlags: []
+
+    x86-win32:
+        context:
+            excludeLibs: ["libphysics","libLinearMath","libBulletDynamics","libBulletCollision","libBox2D","librecord","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["libphysics_null.lib","librecord_null.lib"]
+            linkFlags: []
+
+    x86_64-win32:
+        context:
+            excludeLibs: ["libphysics","libLinearMath","libBulletDynamics","libBulletCollision","libBox2D","librecord","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["libphysics_null.lib","librecord_null.lib"]
+            linkFlags: []
+
+    armv7-android:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeJars: []
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            linkFlags: []
+
+    arm64-android:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeJars: []
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            linkFlags: []
+
+    armv7-ios:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            frameworks: []
+            linkFlags: []
+
+    arm64-ios:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            frameworks: []
+            linkFlags: []
+
+    x86_64-ios:
+        context:
+            excludeLibs: ["physics","LinearMath","BulletDynamics","BulletCollision","Box2D","record","vpx"]
+            excludeSymbols: []
+            symbols: []
+            libs: ["physics_null","record_null"]
+            frameworks: []
+            linkFlags: []
+

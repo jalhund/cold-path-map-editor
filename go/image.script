@@ -1,0 +1,425 @@
+local camera = require "libs.orthographic.camera"
+
+local offsety = 0
+local offsetx = 0
+local previous_y = nil
+local previous_x = nil
+
+click_for_select = true
+
+local scaling_min = 0.4
+local scaling_max = 20
+
+local scaling = {
+	start_point_1 = vmath.vector3(),
+	start_point_2 = vmath.vector3(),
+	end_point_1 = vmath.vector3(),
+	end_point_2 = vmath.vector3(),
+	ratio = 1,
+	ratio_change = false,
+	ratio_start = 1,
+	center_offset = vmath.vector3()
+}
+
+local current_mode = "nothing"
+local current_color = vmath.vector4(1)
+
+local l_x, l_y = nil, nil
+
+local image_data = {
+	size = vmath.vector3(0)
+}
+
+local function refresh_texture(self)
+	resource.set_texture(self.resource_path, self.header, self.buffer_info.buffer)
+end
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+
+	limit_offset()
+
+	local width = 4096
+	local height = 4096
+	local channels = 4
+
+  -- we have to create table with next fields: buffer, width, height, channels
+	self.buffer_info = {
+		buffer = buffer.create(4096*4096*4, { {name=hash("rgba"), type=buffer.VALUE_TYPE_UINT8, count=4} } ),
+		width = width,
+		height = height,
+		channels = channels -- 3 for rgb, 4 for rgba
+	}
+
+	image_data.size = vmath.vector3(width, height, 0)
+
+	local file = io.open(IMAGE_DATA_PATH.."source.png", "rb")
+	if file then
+		local bytes = file:read("*a")
+		local png = image.load(bytes,true)
+		local my_buffer = png.buffer
+		drawpixels.set_texture(self.buffer_info, my_buffer, png.width, png.height, true)
+		image_data.size = vmath.vector3(png.width, png.height, 0)
+	end
+	self.current_color = vmath.vector4(0, 0, 0, 1)
+	self.current_tool = "pencil"
+	-- drawing params
+	self.prev_pos = vmath.vector3()
+	self.resource_path = go.get("go#sprite", "texture0")
+	self.header = {
+		width = width,
+		height = height,
+		type = resource.TEXTURE_TYPE_2D,
+		format = resource.TEXTURE_FORMAT_RGBA,
+		num_mip_maps = 1
+	}
+	self.rotation = 0
+
+	drawpixels.start_fill()
+
+	msg.post(".", "late_init")
+end
+
+-- function final(self)
+-- 	adjacency_map = {}
+-- end
+
+function update(self, dt)
+	if math.floor(offsetx) ~=0 then
+		go.animate("camera", "position.x", go.PLAYBACK_ONCE_FORWARD, go.get_position("camera").x - offsetx, go.EASING_LINEAR, 0.05)
+		if not by_key then
+			click_for_select = false
+		else
+			by_key = true
+		end
+		offsetx = 0
+	end
+	if math.floor(offsety) ~=0 then
+		go.animate("camera", "position.y", go.PLAYBACK_ONCE_FORWARD, go.get_position("camera").y - offsety, go.EASING_LINEAR, 0.05)
+		if not by_key then
+			click_for_select = false
+		else
+			by_key = true
+		end
+		offsety = 0
+	end
+	if scaling.ratio_change then
+		go.animate("camera#script", "zoom", go.PLAYBACK_ONCE_FORWARD, scaling.ratio, go.EASING_LINEAR, 0.05)
+		scaling.ratio_change = false
+		limit_offset()
+	end
+end
+
+local HASH_CURSOR = hash("cursor")
+local HASH_SCROLL = hash("scroll")
+
+function on_message(self, message_id, message, sender)
+	if message_id == HASH_CURSOR then
+		cursor(self, message.action)
+	elseif message_id == HASH_SCROLL then
+		scroll(message.action_id, message.action)
+	elseif message_id == hash("late_init") then
+		refresh_texture(self)
+	elseif message_id == hash("save_to_file") then
+		drawpixels.save_to_file(self.buffer_info, IMAGE_DATA_PATH.."image_data")
+		refresh_texture(self)
+	elseif message_id == hash("load_from_file") then
+		drawpixels.load_from_file(self.buffer_info, IMAGE_DATA_PATH.."image_data")
+		refresh_texture(self)
+	elseif message_id == hash("changed_tool") then
+		current_mode = message.mode
+		l_x, l_y = nil, nil
+	elseif message_id == hash("changed_color") then
+		current_color = message.color
+		l_x, l_y = nil, nil
+	elseif message_id == hash("generate_provinces") then
+		drawpixels.prepare_fill(self.buffer_info, image_data.size.x, image_data.size.y)
+		local generate_color = require "scripts.generate_color"
+		for j = 1, image_data.size.y, 16 do
+			for i = 1, image_data.size.x, 16 do
+				local x, y, z = drawpixels.get_pixel(self.buffer_info, i, j)
+
+				local color = nil
+
+				if x == 180 and y == 210 and z == 236 then
+					color = generate_color.water()
+				elseif x == 255 and y == 255 and z == 255 then
+					color = generate_color.ground()
+				end
+				if color then
+					drawpixels.fill_area(self.buffer_info, i, j, color.x * 255, color.y * 255, color.z * 255, color.w * 255)
+					-- print("Progress: "..(j * image_data.size.x + i).."/"..(image_data.size.x*image_data.size.y))
+					print("Progress: "..(j/image_data.size.y*100).."% "..(i/image_data.size.x*100).."%")
+				end
+			end
+		end
+		refresh_texture(self)
+	elseif message_id == hash("export_map") then
+		local ok, err = lfs.rmdir(IMAGE_DATA_PATH.."exported_map")
+		if not ok then
+			print("export error: ", err)
+		end
+
+		ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map")
+		if not ok then
+			print("export error: ", err)
+		else
+			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/generated_data")
+			if not ok then
+				print("export error: ", err)
+			end
+
+			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/blurred_data")
+			if not ok then
+				print("export error: ", err)
+			end
+
+			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/description")
+			if not ok then
+				print("export error: ", err)
+			end
+		end
+
+		-- Handle images and get number of provinces
+		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true)
+		refresh_texture(self)
+
+		local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
+
+		if file then
+			local t = {
+				num_of_provinces = n,
+				id = lume.uuid(),
+				size = {
+					image_data.size.x,
+					image_data.size.y
+				}
+			}
+
+			file:write(json.encode(t))
+			file:close()
+		else
+			print("error creating file: map_info")
+		end
+
+		file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "w")
+
+		if file then
+			local t = {}
+			for i = 1, n do
+				t[i] = {0, 0}
+			end
+			file:write(json.encode(t))
+			file:close()
+		else
+			print("error creating file: offsets")
+		end
+	end
+end
+
+local padding = 500
+
+function limit_offset()
+	local s_x = 4096--map_info[game_data.map].x
+	local s_y = 4096--map_info[game_data.map].y
+	local start_x = 640 --* screen_stretch_x
+	local start_y = 360
+	local camera_position_x = go.get_position("camera").x
+	if camera_position_x - offsetx < math.floor(start_x/scaling.ratio) - padding then
+		offsetx = -math.floor(start_x/scaling.ratio) + camera_position_x + padding
+	end
+	if camera_position_x - offsetx > s_x-math.floor(start_x/scaling.ratio) + padding then
+		offsetx = -s_x+math.floor(start_x/scaling.ratio) + camera_position_x - padding
+	end
+	local camera_position_y = go.get_position("camera").y
+	if camera_position_y - offsety < math.floor(start_y/scaling.ratio) - padding then
+		offsety = -math.floor(start_y/scaling.ratio) + camera_position_y + padding
+	end
+	if camera_position_y - offsety > s_y-math.floor(start_y/scaling.ratio) + padding then
+		offsety = -s_y+math.floor(start_y/scaling.ratio) + camera_position_y - padding
+	end
+end
+
+local HASH_WHEEL_UP = hash("scroll_up")
+local HASH_WHEEL_DOWN = hash("scroll_down")
+local HASH_TOUCH_MULTI = hash("multitouch")
+local HASH_W= hash("w")
+local HASH_A = hash("a")
+local HASH_S = hash("s")
+local HASH_D = hash("d")
+local HASH_TOUCH = hash("touch")
+
+local ctrl_is_pressed = false
+
+function scroll(action_id, action)
+	if action_id == hash("lctr") then
+		if action.pressed then
+			ctrl_is_pressed = true
+		elseif action.released then
+			ctrl_is_pressed = false
+		end
+	end
+
+	if action_id == HASH_WHEEL_UP then
+		scaling.ratio = scaling.ratio + (ctrl_is_pressed and 0.2 or 0.1)
+		if scaling.ratio > scaling_max then
+			scaling.ratio = scaling_max
+		end
+		scaling.ratio_change = true
+	end
+	if action_id == HASH_WHEEL_DOWN then
+		scaling.ratio = scaling.ratio - (ctrl_is_pressed and 0.2 or 0.1)
+		if scaling.ratio < scaling_min then
+			scaling.ratio = scaling_min
+		end
+		scaling.ratio_change = true
+	end
+	if action_id == HASH_TOUCH_MULTI and not scroller_is_show then
+		local n_touch = 0
+		for i, touchdata in pairs(action.touch) do
+			n_touch = n_touch + 1
+		end
+		if n_touch == 2 then
+			click_for_select = false
+			if action.touch[2].pressed then
+				scaling.start_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.start_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				scaling.end_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.end_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				scaling.ratio_start = scaling.ratio
+			else
+				scaling.end_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.end_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				local pressed_distance = vmath.length(scaling.start_point_1 - scaling.start_point_2)
+				local pos1 = vmath.vector3(scaling.end_point_1.x, scaling.end_point_1.y, 0)
+				local pos2 = vmath.vector3(scaling.end_point_2.x, scaling.end_point_2.y, 0)
+				local diff = pos2 - pos1
+				local distance = vmath.length(diff)
+				local ratio = distance / pressed_distance
+				if ratio > 1 then
+					ratio = (ratio-1)/5 + 1
+				end
+				if scaling.ratio > scaling_min and ratio < 1 or scaling.ratio < scaling_max and ratio > 1 then
+					scaling.ratio = ratio * scaling.ratio_start
+					if scaling.ratio < scaling_min then
+						scaling.ratio = scaling_min
+					end
+					if scaling.ratio > scaling_max then
+						scaling.ratio = scaling_max
+					end
+					scaling.ratio_change = true
+					click_for_select = false
+					offsetx = 0
+					offsety = 0
+				end
+			end
+		end
+	end
+	if action.pressed or action.repeated then
+		if action_id == HASH_W then
+			offsety = -50/scaling.ratio
+			limit_offset()
+			by_key = true
+		elseif action_id == HASH_A then
+			offsetx = 50/scaling.ratio
+			limit_offset()
+			by_key = true
+		elseif action_id == HASH_S then
+			offsety = 50/scaling.ratio
+			limit_offset()
+			by_key = true
+		elseif action_id == HASH_D then
+			offsetx = -50/scaling.ratio
+			limit_offset()
+			by_key = true
+		end
+	end
+	if action_id == HASH_TOUCH
+	and not scaling.ratio_change then
+		--print(scroller_is_show) 
+		if action.repeated or action.pressed then
+			--print(s_x,s_y)
+			local current_mouse_x = action.x
+			--print("current_mouse_x is ", current_mouse_x)
+			offsetx =  (offsetx + current_mouse_x - (previous_x or current_mouse_x))/scaling.ratio
+			previous_x = current_mouse_x
+			local current_mouse_y = action.y
+			--print("Current_mouse_y is ", current_mouse_y)
+			offsety = (offsety + current_mouse_y - (previous_y or current_mouse_y))/scaling.ratio
+			previous_y = current_mouse_y
+
+			limit_offset()
+			if math.abs(offsetx) > 10 or math.abs(offsety) > 10 then
+				click_for_select = false
+			end
+			--print("scaling ratio: ", scaling.ratio)
+		end
+	end
+	if action.released then
+		previous_x = nil
+		previous_y = nil
+	end
+end
+
+local thickness_data = {
+	{
+		{0, 0}
+	},
+	{
+		{-1, 0},
+		{-1, 1},
+		{0, 1},
+		{0, 0},
+	},
+	{
+		{-1, 1},
+		{0, 1},
+		{1, 1},
+		{-1, 0},
+		{0, 0},
+		{1, 0},
+		{-1, -1},
+		{0, -1},
+		{1, -1},
+	}
+}
+
+function cursor(self, action)
+	local pos = camera.screen_to_world(hash("/camera"), vmath.vector3(action.x, action.y,0))
+	pos.x = math.floor(pos.x)
+	pos.y = math.floor(pos.y)
+
+	local c = {
+		current_color.x * 255, current_color.y * 255, current_color.z * 255, current_color.w * 255
+	}
+
+	if current_mode == "draw" then
+		if action.pressed or action.repeated then
+			for k, v in pairs(thickness_data[drawing_thickness]) do
+				drawpixels.set_pixel(self.buffer_info, pos.x - 1 + v[1], pos.y + 1 + v[2], c[1], c[2], c[3], c[4])
+			end
+
+			refresh_texture(self)
+		end
+	elseif current_mode == "line" and action.released then
+		-- print("Drawing line: ", l_x, l_y, pos.x, pos.y)
+		if l_x and l_y then
+			drawpixels.line(self.buffer_info, l_x - 1, l_y + 1, pos.x - 1, pos.y + 1, c[1], c[2], c[3], c[4])
+			refresh_texture(self)
+		end
+		l_x, l_y = pos.x, pos.y
+	elseif current_mode == "fill" and action.released then
+		drawpixels.prepare_fill(self.buffer_info, image_data.size.x, image_data.size.y)
+		drawpixels.fill_area(self.buffer_info, pos.x - 1, pos.y + 1, c[1], c[2], c[3], c[4])
+		refresh_texture(self)
+	elseif current_mode == "pipette" and action.released then
+		local x, y, z, w = drawpixels.get_pixel(self.buffer_info, pos.x - 1, pos.y + 1)
+		if x == 0 and y == 0 and z == 0 then
+			x, y, z = 255, 255, 255
+		end
+		current_color = vmath.vector4(x/255, y/255, z/255, w/255)
+		msg.post("map_creator:/map_creator#map_creator", "changed_color", {
+			color = current_color
+		})
+	end
+end

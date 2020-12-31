@@ -1,0 +1,286 @@
+local camera = require "libs.orthographic.camera"
+local check_click = require "scripts.check_click"
+local provinces = require "go.provinces"
+
+local offset_texts = {}
+
+local offsety = 0
+local offsetx = 0
+local previous_y = nil
+local previous_x = nil
+
+click_for_select = true
+
+local scaling_min = 0.4
+local scaling_max = 20
+
+local scaling = {
+	start_point_1 = vmath.vector3(),
+	start_point_2 = vmath.vector3(),
+	end_point_1 = vmath.vector3(),
+	end_point_2 = vmath.vector3(),
+	ratio = 1,
+	ratio_change = false,
+	ratio_start = 1,
+	center_offset = vmath.vector3()
+}
+
+local change_offset = false
+
+go.property("common24", resource.font("/font/common24.font"))
+go.property("distancefield", resource.material("/materials/distancefield.material"))
+go.property("atlas_124", resource.atlas("/atlas/map/small.atlas"))
+go.property("atlas_252", resource.atlas("/atlas/map/normal.atlas"))
+go.property("atlas_508", resource.atlas("/atlas/map/large.atlas"))
+go.property("atlas_1020", resource.atlas("/atlas/map/extra_large.atlas"))
+go.property("atlas_2044", resource.atlas("/atlas/map/maximum.atlas"))
+
+local map_data
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+
+	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "r")
+	if not file then
+		print("error open file: map_info.json")
+		os.exit()
+	end
+
+	local json_data = file:read("*a")
+
+	map_data = json.decode(json_data)
+
+	file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "r")
+	if not file then
+		print("error opening file: offsets.json")
+	end
+	json_data = file:read("*a")
+
+	map_data.offset = json.decode(json_data)
+
+	provinces.init(self, map_data)
+
+	msg.post(".", "late_init")
+
+	offsetx =  - map_data.size[1]*0.5 + 640 - go.get_position(provinces.get(selected_province)).x
+	offsety =  - map_data.size[2]*0.5 + 360 - go.get_position(provinces.get(selected_province)).y
+	limit_offset()
+
+	game_data = {
+		provinces = {}
+	}
+
+	for i = 1, map_data.num_of_provinces do
+		game_data.provinces[i] = {}
+		offset_texts[i] = factory.create("/factories#offset_text_factory", vmath.vector3(map_data.offset[i][1],
+		 map_data.offset[i][2], 1))
+		go.set_parent(offset_texts[i], provinces.provinces[i])
+		label.set_text(offset_texts[i], i)
+	end
+end
+
+function update(self, dt)
+	if math.floor(offsetx) ~=0 then
+		go.animate("camera", "position.x", go.PLAYBACK_ONCE_FORWARD, go.get_position("camera").x - offsetx, go.EASING_LINEAR, 0.05)
+		offsetx = 0
+	end
+	if math.floor(offsety) ~=0 then
+		go.animate("camera", "position.y", go.PLAYBACK_ONCE_FORWARD, go.get_position("camera").y - offsety, go.EASING_LINEAR, 0.05)
+		offsety = 0
+	end
+	if scaling.ratio_change then
+		go.animate("camera#script", "zoom", go.PLAYBACK_ONCE_FORWARD, scaling.ratio, go.EASING_LINEAR, 0.05)
+		scaling.ratio_change = false
+		limit_offset()
+	end
+end
+
+local HASH_CURSOR = hash("cursor")
+local HASH_SCROLL = hash("scroll")
+
+function on_message(self, message_id, message, sender)
+	if message_id == HASH_CURSOR then
+		cursor(self, message.action)
+	elseif message_id == HASH_SCROLL then
+		scroll(message.action_id, message.action)
+	elseif message_id == hash("late_init") then
+		provinces.late_init(self, map_data)
+	elseif message_id == hash("set_change_offset") then
+		change_offset = message.value
+		local file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "w")
+		if file then
+			file:write(json.encode(map_data.offset))
+			file:close()
+		else
+			print("Error open file and change value")
+		end
+	end
+end
+
+local padding = 500
+
+function limit_offset()
+	local s_x = map_data.size[1]
+	local s_y = map_data.size[2]
+	local start_x = 640 --* screen_stretch_x
+	local start_y = 360
+	local camera_position_x = go.get_position("camera").x
+	if camera_position_x - offsetx < math.floor(start_x/scaling.ratio) - padding then
+		offsetx = -math.floor(start_x/scaling.ratio) + camera_position_x + padding
+	end
+	if camera_position_x - offsetx > s_x-math.floor(start_x/scaling.ratio) + padding then
+		offsetx = -s_x+math.floor(start_x/scaling.ratio) + camera_position_x - padding
+	end
+	local camera_position_y = go.get_position("camera").y
+	if camera_position_y - offsety < math.floor(start_y/scaling.ratio) - padding then
+		offsety = -math.floor(start_y/scaling.ratio) + camera_position_y + padding
+	end
+	if camera_position_y - offsety > s_y-math.floor(start_y/scaling.ratio) + padding then
+		offsety = -s_y+math.floor(start_y/scaling.ratio) + camera_position_y - padding
+	end
+end
+
+local HASH_WHEEL_UP = hash("scroll_up")
+local HASH_WHEEL_DOWN = hash("scroll_down")
+local HASH_TOUCH_MULTI = hash("multitouch")
+local HASH_W = hash("w")
+local HASH_A = hash("a")
+local HASH_S = hash("s")
+local HASH_D = hash("d")
+local HASH_TOUCH = hash("touch")
+
+local ctrl_is_pressed = false
+
+function scroll(action_id, action)
+	if action_id == hash("lctr") then
+		if action.pressed then
+			ctrl_is_pressed = true
+		elseif action.released then
+			ctrl_is_pressed = false
+		end
+	end
+
+	if action_id == HASH_WHEEL_UP then
+		scaling.ratio = scaling.ratio + (ctrl_is_pressed and 0.2 or 0.1)
+		if scaling.ratio > scaling_max then
+			scaling.ratio = scaling_max
+		end
+		scaling.ratio_change = true
+	end
+	if action_id == HASH_WHEEL_DOWN then
+		scaling.ratio = scaling.ratio - (ctrl_is_pressed and 0.2 or 0.1)
+		if scaling.ratio < scaling_min then
+			scaling.ratio = scaling_min
+		end
+		scaling.ratio_change = true
+	end
+	if action_id == HASH_TOUCH_MULTI and not scroller_is_show then
+		local n_touch = 0
+		for i, touchdata in pairs(action.touch) do
+			n_touch = n_touch + 1
+		end
+		if n_touch == 2 then
+			click_for_select = false
+			if action.touch[2].pressed then
+				scaling.start_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.start_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				scaling.end_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.end_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				scaling.ratio_start = scaling.ratio
+			else
+				scaling.end_point_1 = vmath.vector3(action.touch[1].x,action.touch[1].y,0)
+				scaling.end_point_2 = vmath.vector3(action.touch[2].x,action.touch[2].y,0)
+				local pressed_distance = vmath.length(scaling.start_point_1 - scaling.start_point_2)
+				local pos1 = vmath.vector3(scaling.end_point_1.x, scaling.end_point_1.y, 0)
+				local pos2 = vmath.vector3(scaling.end_point_2.x, scaling.end_point_2.y, 0)
+				local diff = pos2 - pos1
+				local distance = vmath.length(diff)
+				local ratio = distance / pressed_distance
+				if ratio > 1 then
+					ratio = (ratio-1)/5 + 1
+				end
+				if scaling.ratio > scaling_min and ratio < 1 or scaling.ratio < scaling_max and ratio > 1 then
+					scaling.ratio = ratio * scaling.ratio_start
+					if scaling.ratio < scaling_min then
+						scaling.ratio = scaling_min
+					end
+					if scaling.ratio > scaling_max then
+						scaling.ratio = scaling_max
+					end
+					scaling.ratio_change = true
+					click_for_select = false
+					offsetx = 0
+					offsety = 0
+				end
+			end
+		end
+	end
+	if action.pressed or action.repeated then
+		if action_id == HASH_W then
+			offsety = -50/scaling.ratio
+			limit_offset()
+		elseif action_id == HASH_A then
+			offsetx = 50/scaling.ratio
+			limit_offset()
+		elseif action_id == HASH_S then
+			offsety = 50/scaling.ratio
+			limit_offset()
+		elseif action_id == HASH_D then
+			offsetx = -50/scaling.ratio
+			limit_offset()
+		end
+	end
+	if action_id == HASH_TOUCH
+	and not scaling.ratio_change then
+		--print(scroller_is_show) 
+		if action.repeated or action.pressed then
+			--print(s_x,s_y)
+			local current_mouse_x = action.x
+			--print("current_mouse_x is ", current_mouse_x)
+			offsetx =  (offsetx + current_mouse_x - (previous_x or current_mouse_x))/scaling.ratio
+			previous_x = current_mouse_x
+			local current_mouse_y = action.y
+			--print("Current_mouse_y is ", current_mouse_y)
+			offsety = (offsety + current_mouse_y - (previous_y or current_mouse_y))/scaling.ratio
+			previous_y = current_mouse_y
+
+			limit_offset()
+			if math.abs(offsetx) > 10 or math.abs(offsety) > 10 then
+				click_for_select = false
+			end
+		end
+	end
+	if action.released then
+		previous_x = nil
+		previous_y = nil
+	end
+end
+
+local last_province
+
+function cursor(self, action)
+	if action.released and click_for_select then
+		local pos = camera.screen_to_world(hash("/camera"), vmath.vector3(action.x, action.y,0))
+
+		for k, v in pairs(game_data.provinces) do
+			if check_click.check(provinces.provinces[k], pos.x, pos.y, tostring(k)) then
+				if last_province then
+					go.set(msg.url(nil, offset_texts[last_province], "label"), "color", vmath.vector4(1, 1, 1, 1))
+					sprite.set_constant(provinces.provinces[last_province], "tint", vmath.vector4(1, 1, 1,1))
+				end
+				last_province = k
+				go.set(msg.url(nil, offset_texts[k], "label"), "color", vmath.vector4(1, 0, 0, 1))
+				sprite.set_constant(provinces.provinces[k], "tint", vmath.vector4(1, 0, 0,1))
+				if change_offset then
+					local new_pos = pos - go.get_world_position(provinces.provinces[k])
+					go.set_position(new_pos, offset_texts[k])
+					map_data.offset[k][1] = new_pos.x
+					map_data.offset[k][2] = new_pos.y
+				end
+			end
+		end
+	end
+	if action.released then
+		click_for_select = true
+	end
+end

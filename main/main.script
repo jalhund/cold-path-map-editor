@@ -1,0 +1,78 @@
+require "scripts.utils"
+lume = require "scripts.lume"
+json = require "scripts.json"
+
+-- You can specify path. Example: "D:/"
+-- I highly recommend changing this value to a value outside the project folder
+-- if you are going to create a map by running the version from Defold editor
+IMAGE_DATA_PATH = ""
+
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	msg.post("@render:", "use_fixed_fit_projection", { near = -10, far = 10 })
+	-- msg.post("@render:", "clear_color", {color = vmath.vector4(1, 1, 1, 1)})
+
+	local sysinfo = sys.get_sys_info()
+	if sysinfo.system_name == "Android" then
+		IMAGE_DATA_PATH = "/mnt/sdcard/Android/data/com.DenisMakhortov.ColdPathMapEditor/"
+	end
+
+	math.randomseed(tonumber(hash_to_hex(hash(tostring({}))):sub(4, 8), 16))
+
+	-- local test = require "scripts.test.generate_color"
+	-- test.start()
+
+	-- local test = require "scripts.test.positions_in_atlas"
+	-- test.start()
+
+	-- For copy images
+	-- local image_name = "maximum"
+	-- local atlas_data = "images {\n  image: \"/images/map/"..image_name.."/1.png\"\n  sprite_trim_mode: SPRITE_TRIM_MODE_OFF\n}"
+	-- local file = io.open("images/map/"..image_name.."/1.png", "rb")
+	-- if file then
+	-- 	local data = file:read("*a")
+	-- 	file:close()
+
+	-- 	for i = 2, 4 do
+	-- 		local file = io.open("images/map/"..image_name.."/"..i..".png", "wb")
+	-- 		file:write(data)
+	-- 		file:close()
+	-- 		atlas_data = atlas_data.."\n".."images {\n  image: \"/images/map/"..image_name.."/"..i..".png\"\n  sprite_trim_mode: SPRITE_TRIM_MODE_OFF\n}"
+	-- 	end
+	-- else
+	-- 	print("error open file")
+	-- end
+	-- atlas_data = atlas_data.."\nextrude_borders: 2"
+	-- file = io.open("atlas/map/"..image_name..".atlas", "w")
+	-- if file then
+	-- 	file:write(atlas_data)
+	-- 	file:close()
+	-- else
+	-- 	print("Error create atlas description")
+	-- end
+end
+
+function on_input(self, action_id, action)
+	-- if action_id == hash("touch") and action.pressed then
+	-- 	print("Touch!")
+	-- end
+	-- if action_id == hash("q") and action.released then
+	-- 	os.exit()
+	-- end
+end
+
+function on_message(self, message_id, message, sender)
+	if message_id == hash("proxy_loaded") then
+		-- New world is loaded. Init and enable it.
+		--print("Loaded proxy from sender: ", sender)
+		msg.post(sender, "init")
+		msg.post(sender, "enable")
+	elseif message_id == hash("load_creator") then
+		msg.post("#map_creator_proxy", "load")
+		msg.post("#image_proxy", "load")
+	elseif message_id == hash("load_editor") then
+		msg.post("#map_editor_proxy", "load")
+		msg.post("#map_proxy", "load")
+	end
+end

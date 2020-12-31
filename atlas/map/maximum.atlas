@@ -1,0 +1,17 @@
+images {
+  image: "/images/map/maximum/1.png"
+  sprite_trim_mode: SPRITE_TRIM_MODE_OFF
+}
+images {
+  image: "/images/map/maximum/2.png"
+  sprite_trim_mode: SPRITE_TRIM_MODE_OFF
+}
+images {
+  image: "/images/map/maximum/3.png"
+  sprite_trim_mode: SPRITE_TRIM_MODE_OFF
+}
+images {
+  image: "/images/map/maximum/4.png"
+  sprite_trim_mode: SPRITE_TRIM_MODE_OFF
+}
+extrude_borders: 2
