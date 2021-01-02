@@ -1,5 +1,6 @@
 /.internal
 /build
+/exported_map
 .externalToolBuilders
 .DS_Store
 Thumbs.db
@@ -8,4 +9,3 @@ Thumbs.db
 .project
 .cproject
 builtins
-/exported_map

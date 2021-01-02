@@ -31,12 +31,6 @@ bundle_identifier = com.example.todo
 bundle_identifier = com.example.todo
 
 [android]
-app_icon_36x36 = /assets/app_icons/icon_36.png
-app_icon_48x48 = /assets/app_icons/icon_48.png
-app_icon_72x72 = /assets/app_icons/icon_72.png
-app_icon_96x96 = /assets/app_icons/icon_96.png
-app_icon_144x144 = /assets/app_icons/icon_144.png
-app_icon_192x192 = /assets/app_icons/icon_192.png
 input_method = HiddenInputField
 package = com.DenisMakhortov.ColdPathMapEditor
 

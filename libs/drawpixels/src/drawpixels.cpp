@@ -2154,10 +2154,11 @@ static void export_province(Color & color, int n, char * file_path, bool generat
 static void save_adjacency(int * adjacency_list, int size, char * file_path) {
   FILE * fp;
 
-  const char * file_name = concat(file_path, "exported_map/adjacency.dat");
+  char * file_name = concat(file_path, "exported_map/adjacency.dat");
 
   if ((fp = fopen(file_name, "w")) == NULL) {
     printf("File open error");
+    free(file_name);
     return;
   }
 
@@ -2170,6 +2171,7 @@ static void save_adjacency(int * adjacency_list, int size, char * file_path) {
     fprintf(fp, "\n");
   }
   fclose(fp);
+  free(file_name);
 }
 
 static int handle_image(lua_State * L) {

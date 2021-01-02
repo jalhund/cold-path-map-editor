@@ -186,10 +186,12 @@ function on_message(self, message_id, message, sender)
 
 		local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
 
+		local map_id = lume.uuid()
+
 		if file then
 			local t = {
 				num_of_provinces = n,
-				id = lume.uuid(),
+				id = map_id,
 				size = {
 					image_data.size.x,
 					image_data.size.y
@@ -214,6 +216,44 @@ function on_message(self, message_id, message, sender)
 		else
 			print("error creating file: offsets")
 		end
+
+		file = io.open(IMAGE_DATA_PATH.."exported_map/scenario.json", "w")
+
+		if file then
+			local game_data = {
+				custom_map = true,
+				map = map_id,
+				id = "generated_scenario",
+				year = 0,
+				technology_lvl = 0,
+				lands = {
+					Civilization = {
+						capital = 1,
+						color = { 102, 204, 0 },
+						name = "Civilization"
+					},
+					Undeveloped_land = {
+						color = { 200, 200, 200 },
+						name = "undeveloped_land"
+					},
+				},
+				provinces = {
+					[1] = {
+						o = "Civilization"
+					}
+				}
+			}
+			for i = 2, n do
+				game_data.provinces[i] = {
+					o = "Undeveloped_land"
+				}
+			end
+			file:write(json.encode(game_data))
+			file:close()
+		else
+			print("error creating file: scenario.json")
+		end
+
 	end
 end
 
