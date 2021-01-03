@@ -121,10 +121,27 @@ function on_message(self, message_id, message, sender)
 	elseif message_id == hash("late_init") then
 		refresh_texture(self)
 	elseif message_id == hash("save_to_file") then
-		drawpixels.save_to_file(self.buffer_info, IMAGE_DATA_PATH.."image_data")
+		local file = io.open(IMAGE_DATA_PATH.."image_data", "wb")
+
+		local bytes = drawpixels.get_image_data(self.buffer_info)
+
+		if file and bytes then
+			file:write(bytes)
+			file:close()
+		else
+			print("ERROR: load_from_file")
+		end
 		refresh_texture(self)
 	elseif message_id == hash("load_from_file") then
-		drawpixels.load_from_file(self.buffer_info, IMAGE_DATA_PATH.."image_data")
+		local file = io.open(IMAGE_DATA_PATH.."image_data", "rb")
+
+		if file then
+			local data = file:read("*a")
+			drawpixels.set_texture(self.buffer_info, data, 4096, 4096, false, false)
+			file:close()
+		else
+			print("ERROR: load_from_file")
+		end
 		refresh_texture(self)
 	elseif message_id == hash("changed_tool") then
 		current_mode = message.mode

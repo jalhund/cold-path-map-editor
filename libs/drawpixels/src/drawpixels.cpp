@@ -1708,32 +1708,47 @@ static int set_texture(lua_State * L) {
   int32_t width = luaL_checknumber(L, 3);
   int32_t height = luaL_checknumber(L, 4);
   bool normalize = lua_toboolean(L, 5);
+  bool reverse = lua_toboolean(L, 6);
 
+  int k;
+  printf("Reverse: %d\n", reverse);
   for (int i = 0; i < height; ++i) {
     for (int j = 0; j < width; ++j) {
       for (int l = 0; l < buffer_info.channels; ++l) {
+        k = i;
+        if(reverse)
+          k = (height - i - 1);
         buffer_info.bytes[i * buffer_info.width * buffer_info.channels + j * buffer_info.channels + l] =
-          str[(height - i - 1) * width * buffer_info.channels + j * buffer_info.channels + l];
+          str[k * width * buffer_info.channels + j * buffer_info.channels + l];
       }
     }
   }
+  int water_diff, white_diff; //, black_diff;
+  int accuracy = 100;
   if (normalize) {
     for (uint32_t i = 0; i < buffer_info.src_size; i += 4) {
       if (buffer_info.bytes[i + 3]) {
-        // Ignore water color
-        if (buffer_info.bytes[i] != 180 && buffer_info.bytes[i + 1] != 210 && buffer_info.bytes[i + 2] != 236) {
-          if (buffer_info.bytes[i] >= 120 && buffer_info.bytes[i + 1] >= 120 && buffer_info.bytes[i + 2] >= 120) {
-            buffer_info.bytes[i] = 255;
-            buffer_info.bytes[i + 1] = 255;
-            buffer_info.bytes[i + 2] = 255;
-          } else {
-            buffer_info.bytes[i] = 0;
-            buffer_info.bytes[i + 1] = 0;
-            buffer_info.bytes[i + 2] = 0;
-          }
-
+        water_diff = abs(buffer_info.bytes[i] - 180) + abs(buffer_info.bytes[i + 1] - 210) + abs(buffer_info.bytes[i + 2] - 236);
+        white_diff = abs(buffer_info.bytes[i] - 255) + abs(buffer_info.bytes[i + 1] - 255) + abs(buffer_info.bytes[i + 2] - 255);
+        // black_diff = abs(buffer_info.bytes[i] - 0) + abs(buffer_info.bytes[i + 1] - 0) + abs(buffer_info.bytes[i + 2] - 0);
+        if(water_diff < accuracy)
+        {
+          buffer_info.bytes[i] = 180;
+          buffer_info.bytes[i + 1] = 210;
+          buffer_info.bytes[i + 2] = 236;
         }
-
+        if(white_diff < accuracy)
+        {
+          buffer_info.bytes[i] = 255;
+          buffer_info.bytes[i + 1] = 255;
+          buffer_info.bytes[i + 2] = 255;
+        }
+        if(!(water_diff < accuracy || white_diff < accuracy))
+        {
+          buffer_info.bytes[i] = 0;
+          buffer_info.bytes[i + 1] = 0;
+          buffer_info.bytes[i + 2] = 0;
+        }
       }
     }
   }
@@ -1742,46 +1757,14 @@ static int set_texture(lua_State * L) {
   return 0;
 }
 
-static int save_to_file(lua_State * L) {
+static int get_image_data(lua_State * L) {
   int top = lua_gettop(L) + 5;
 
   read_and_validate_buffer_info(L, 1);
-  char * file_name = (char * ) luaL_checkstring(L, 2);
 
-  FILE * fp;
-
-  if ((fp = fopen(file_name, "wb")) == NULL) {
-    printf("File open error");
-    assert(top == lua_gettop(L));
-    return 0;
-  }
-
-  fwrite(buffer_info.bytes, 1, buffer_info.src_size, fp);
-
-  fclose(fp);
-  assert(top == lua_gettop(L));
-  return 0;
-}
-
-static int load_from_file(lua_State * L) {
-  int top = lua_gettop(L) + 5;
-
-  read_and_validate_buffer_info(L, 1);
-  char * file_name = (char * ) luaL_checkstring(L, 2);
-
-  FILE * fp;
-
-  if ((fp = fopen(file_name, "rb")) == NULL) {
-    printf("File open error");
-    assert(top == lua_gettop(L));
-    return 0;
-  }
-
-  fread(buffer_info.bytes, 1, buffer_info.src_size, fp);
-
-  fclose(fp);
-  assert(top == lua_gettop(L));
-  return 0;
+  lua_pushlstring(L, (const char*) buffer_info.bytes, buffer_info.src_size);
+  // assert(top == lua_gettop(L));
+  return 1;
 }
 
 static int find_element(dmArray < Color > & colors, Color c) {
@@ -2405,12 +2388,8 @@ const luaL_reg Module_methods[] = {
     set_texture
   },
   {
-    "save_to_file",
-    save_to_file
-  },
-  {
-    "load_from_file",
-    load_from_file
+    "get_image_data",
+    get_image_data
   },
   {
     "handle_image",
