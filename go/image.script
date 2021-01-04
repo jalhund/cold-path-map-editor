@@ -260,20 +260,25 @@ function on_message(self, message_id, message, sender)
 					},
 				},
 				provinces = {
-					[1] = {
-						o = "Civilization"
-					}
 				}
 			}
+			local province_for_player = true
 			for i = 1, n do
 				if string.byte(water_data, i) == 1 then
 					game_data.provinces[i] = {
 						water = true
 					}
 				else
-					game_data.provinces[i] = {
-						o = "Undeveloped_land"
-					}
+					if province_for_player then
+						game_data.provinces[i] = {
+							o = "Civilization"
+						}
+						province_for_player = false
+					else
+						game_data.provinces[i] = {
+							o = "Undeveloped_land"
+						}
+					end
 				end
 			end
 			file:write(json.encode(game_data))
