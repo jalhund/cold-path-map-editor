@@ -1,6 +1,9 @@
 /.internal
 /build
 /exported_map
+image_data
+debug.keystore
+debug.keystore.pass.txt
 .externalToolBuilders
 .DS_Store
 Thumbs.db

@@ -197,8 +197,13 @@ function on_message(self, message_id, message, sender)
 			end
 		end
 
+		local water_data = ""
+		for i = 1, 4096 do
+			water_data = water_data.."0"
+		end
+
 		-- Handle images and get number of provinces
-		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true)
+		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true, water_data)
 		refresh_texture(self)
 
 		local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
@@ -260,10 +265,16 @@ function on_message(self, message_id, message, sender)
 					}
 				}
 			}
-			for i = 2, n do
-				game_data.provinces[i] = {
-					o = "Undeveloped_land"
-				}
+			for i = 1, n do
+				if string.byte(water_data, i) == 1 then
+					game_data.provinces[i] = {
+						water = true
+					}
+				else
+					game_data.provinces[i] = {
+						o = "Undeveloped_land"
+					}
+				end
 			end
 			file:write(json.encode(game_data))
 			file:close()

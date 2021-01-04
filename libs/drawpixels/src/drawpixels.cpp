@@ -1871,7 +1871,7 @@ static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_
   return blurred_image;
 }
 
-static void export_province(Color & color, int n, char * file_path, bool generate_adjacency, dmArray < Color > & colors,
+static bool export_province(Color & color, int n, char * file_path, bool generate_adjacency, dmArray < Color > & colors,
   int* adjacency_list, int num_of_provinces) {
   uint8_t* bytes = new uint8_t[buffer_info.width * buffer_info.height];
 
@@ -2010,7 +2010,7 @@ static void export_province(Color & color, int n, char * file_path, bool generat
     delete[] blurred_image;
     delete[] output_generated_data;
     delete[] output_blurred_data;
-    return;
+    return 0;
   }
 
   fwrite(output_generated_data, 1, texture_size * texture_size, fp);
@@ -2031,7 +2031,7 @@ static void export_province(Color & color, int n, char * file_path, bool generat
     delete[] blurred_image;
     delete[] output_generated_data;
     delete[] output_blurred_data;
-    return;
+    return 0;
   }
 
   fwrite(output_blurred_data, 1, texture_size * texture_size, fp);
@@ -2053,11 +2053,13 @@ static void export_province(Color & color, int n, char * file_path, bool generat
     delete[] blurred_image;
     delete[] output_generated_data;
     delete[] output_blurred_data;
-    return;
+    return 0;
   }
 
+  bool is_water = color.b >= 225;
+
   fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d],\"water\":%s}", texture_size, texture_size,
-    min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2, color.b >= 225 ? "true" : "false");
+    min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2, is_water ? "true" : "false");
   printf("Set position: %d, %d, %d, %d\n", min_x, max_x, min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2);
   fclose(fp);
 
@@ -2085,7 +2087,7 @@ static void export_province(Color & color, int n, char * file_path, bool generat
     // For test outline
     // for (int i = min_y*buffer_info.width + min_x; i < buffer_info.width * buffer_info.height; i++)
     // {
-    // 	buffer_info.bytes[i*4 + 3] = outline_bytes[i];
+    //  buffer_info.bytes[i*4 + 3] = outline_bytes[i];
     // }
 
     dmArray < Color > colors_found;
@@ -2132,6 +2134,7 @@ static void export_province(Color & color, int n, char * file_path, bool generat
   delete[] blurred_image;
   delete[] output_generated_data;
   delete[] output_blurred_data;
+  return is_water;
 }
 
 static void save_adjacency(int * adjacency_list, int size, char * file_path) {
@@ -2189,6 +2192,7 @@ static int handle_image(lua_State * L) {
   int i = 0;
 
   bool generate_adjacency = lua_toboolean(L, 3);
+  char * water_provinces = (char * ) luaL_checkstring(L, 4);
 
   int * adjacency_list;
 
@@ -2206,7 +2210,7 @@ static int handle_image(lua_State * L) {
     // printf("Export province %d. Color: %d, %d, %d", i, colors[i].r, colors[i].g, colors[i].b)
     printf("Export provinces: %.2f%%. Generate adjacency: %d\n", (double) i / colors.Size() * 100, generate_adjacency);
     fflush(stdout);
-    export_province(colors[i], i, file_path, generate_adjacency, colors, adjacency_list, colors.Size());
+    water_provinces[i] = export_province(colors[i], i, file_path, generate_adjacency, colors, adjacency_list, colors.Size());
   }
 
   printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
@@ -2218,13 +2222,13 @@ static int handle_image(lua_State * L) {
     // For debug
     // for (int i = 0; i < colors.Size(); ++i)
     // {
-    // 	printf("From province %d you can go to: ", i + 1);
-    // 	for (int j = 0; j < colors.Size(); ++j)
-    // 	{
-    // 		if(adjacency_list[colors.Size() * i + j])
-    // 			printf("%d ", adjacency_list[colors.Size() * i + j]);
-    // 	}
-    // 	printf("\n");
+    //  printf("From province %d you can go to: ", i + 1);
+    //  for (int j = 0; j < colors.Size(); ++j)
+    //  {
+    //    if(adjacency_list[colors.Size() * i + j])
+    //      printf("%d ", adjacency_list[colors.Size() * i + j]);
+    //  }
+    //  printf("\n");
     // }
     save_adjacency(adjacency_list, colors.Size(), file_path);
     delete[] adjacency_list;
@@ -2290,8 +2294,8 @@ static int get_file_data(lua_State * L) {
 
       // For debug
       // if ((i == y_offset || j == x_offset || i == y_offset + texture_width - 1 ||
-      // 	j == x_offset + texture_width - 1))
-      // 	buffer_bytes[i * 4096 + j] = 255;
+      //  j == x_offset + texture_width - 1))
+      //  buffer_bytes[i * 4096 + j] = 255;
     }
   }
   // printf("Province data: %d, %d, %d, %d\n", width, height, texture_width, buffer_size);
