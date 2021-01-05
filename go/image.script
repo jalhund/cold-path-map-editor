@@ -288,6 +288,45 @@ function on_message(self, message_id, message, sender)
 			print("error creating file: scenario.json")
 		end
 
+		file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "r")
+
+		-- Validate adjacency list
+		if file then
+			local adjacency_list = {}
+
+			local data = file:read("*a")
+			file:close()
+
+			local first = true
+			for line in string.gmatch(data, "[^\n]+") do
+				local prov = nil
+				for i in string.gmatch(line, "%S+") do
+					i = tonumber(i)
+					if first then
+						first = false
+						prov = i
+						adjacency_list[i] = {}
+					else
+						table.insert(adjacency_list[prov], i)
+					end
+				end
+				first = true
+			end
+			for k, v in pairs(adjacency_list) do
+				for key, val in pairs(v) do
+					if not lume.match(adjacency_list[val], function(x)
+						return x == k
+					end) then
+						print("\n ERROR ON PROVINCES: ", k, val)
+						table.insert(adjacency_list[val], k)
+						print("Fixed!")
+					end
+				end
+			end
+		else
+			print("error validating file: adjacency.dat")
+		end
+
 	end
 end
 
