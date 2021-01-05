@@ -323,6 +323,17 @@ function on_message(self, message_id, message, sender)
 					end
 				end
 			end
+
+			file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "w")
+
+			for k, v in pairs(adjacency_list) do
+				file:write(k.." ")
+				for key, val in pairs(v) do
+					file:write(val.." ")
+				end
+				file:write("\n")
+			end
+			file:close()
 		else
 			print("error validating file: adjacency.dat")
 		end
