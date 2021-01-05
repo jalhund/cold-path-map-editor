@@ -248,6 +248,7 @@ function on_message(self, message_id, message, sender)
 				id = "generated_scenario",
 				year = 0,
 				technology_lvl = 0,
+				player_land = "Civilization",
 				lands = {
 					Civilization = {
 						capital = 1,
