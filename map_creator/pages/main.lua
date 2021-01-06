@@ -20,9 +20,20 @@ function M.set_callback(callback)
 end
 
 function M.on_message(self, message_id, message, sender)
+	if message_id == hash("finish_export") then
+		self.exporting = false
+	end
+end
+
+function update_progress(_, num)
+	-- print("Update progress gui:", num)
+	gui.set_text(gui.get_node("progress_test"), "Map export progress: "..lume.round(num, .01).."%")
 end
 
 function M.on_input(self, action_id, action)
+	if self.exporting then
+		return
+	end
 	gooey.button("image_editor_button/outline", action_id, action, function()
 		set_page("image_editor")
 	end, update_button_menu)
@@ -33,6 +44,8 @@ function M.on_input(self, action_id, action)
 		msg.post("image:/go#image", "generate_provinces")
 	end, update_button_menu)
 	gooey.button("export_map/outline", action_id, action, function()
+		self.exporting = true
+		drawpixels.register_progress_callback(update_progress)
 		msg.post("image:/go#image", "export_map")
 	end, update_button_menu)
 end

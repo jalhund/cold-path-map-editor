@@ -113,6 +113,135 @@ end
 local HASH_CURSOR = hash("cursor")
 local HASH_SCROLL = hash("scroll")
 
+local function finish_export(n, water_data)
+	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
+	local map_id = lume.uuid()
+
+	if file then
+		local t = {
+			num_of_provinces = n,
+			id = map_id,
+			size = {
+				image_data.size.x,
+				image_data.size.y
+			}
+		}
+
+		file:write(json.encode(t))
+		file:close()
+	else
+		print("error creating file: map_info")
+	end
+
+	file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "w")
+	if file then
+		local t = {}
+		for i = 1, n do
+			t[i] = {0, 0}
+		end
+		file:write(json.encode(t))
+		file:close()
+	else
+		print("error creating file: offsets")
+	end
+
+	file = io.open(IMAGE_DATA_PATH.."exported_map/scenario.json", "w")
+	if file then
+		local game_data = {
+			custom_map = true,
+			map = map_id,
+			id = "generated_scenario",
+			year = 0,
+			technology_lvl = 0,
+			player_land = "Civilization",
+			lands = {
+				Civilization = {
+					capital = 1,
+					color = { 102, 204, 0 },
+					name = "Civilization"
+				},
+				Undeveloped_land = {
+					color = { 200, 200, 200 },
+					name = "undeveloped_land"
+				},
+			},
+			provinces = {
+			}
+		}
+		local province_for_player = true
+		for i = 1, n do
+			if string.byte(water_data, i) == 1 then
+				game_data.provinces[i] = {
+					water = true
+				}
+			else
+				if province_for_player then
+					game_data.provinces[i] = {
+						o = "Civilization"
+					}
+					province_for_player = false
+				else
+					game_data.provinces[i] = {
+						o = "Undeveloped_land"
+					}
+				end
+			end
+		end
+		file:write(json.encode(game_data))
+		file:close()
+	else
+		print("error creating file: scenario.json")
+	end
+
+	-- Validate adjacency list
+	file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "r")
+	if file then
+		local adjacency_list = {}
+
+		local data = file:read("*a")
+		file:close()
+
+		local first = true
+		for line in string.gmatch(data, "[^\n]+") do
+			local prov = nil
+			for i in string.gmatch(line, "%S+") do
+				i = tonumber(i)
+				if first then
+					first = false
+					prov = i
+					adjacency_list[i] = {}
+				else
+					table.insert(adjacency_list[prov], i)
+				end
+			end
+			first = true
+		end
+		for k, v in pairs(adjacency_list) do
+			for key, val in pairs(v) do
+				if not lume.match(adjacency_list[val], function(x)
+					return x == k
+				end) then
+					print("\n ERROR ON PROVINCES: ", k, val)
+					table.insert(adjacency_list[val], k)
+					print("Fixed!")
+				end
+			end
+		end
+
+		file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "w")
+		for k, v in pairs(adjacency_list) do
+			file:write(k.." ")
+			for key, val in pairs(v) do
+				file:write(val.." ")
+			end
+			file:write("\n")
+		end
+		file:close()
+	else
+		print("error validating file: adjacency.dat")
+	end
+end
+
 function on_message(self, message_id, message, sender)
 	if message_id == HASH_CURSOR then
 		cursor(self, message.action)
@@ -203,141 +332,22 @@ function on_message(self, message_id, message, sender)
 		end
 
 		-- Handle images and get number of provinces
-		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true, water_data)
+		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true)
+		self.i = 0
+
+		timer.delay(0.01, true, function(self, handle, _)
+			if self.i == n then
+				msg.post("map_creator:/map_creator#map_creator", "finish_export")
+				drawpixels.finish_export()
+				finish_export(n, water_data)
+				timer.cancel(handle)
+			else
+				drawpixels.export_image(self.i, water_data)
+				self.i = self.i + 1
+			end
+		end)
+
 		refresh_texture(self)
-
-		local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
-
-		local map_id = lume.uuid()
-
-		if file then
-			local t = {
-				num_of_provinces = n,
-				id = map_id,
-				size = {
-					image_data.size.x,
-					image_data.size.y
-				}
-			}
-
-			file:write(json.encode(t))
-			file:close()
-		else
-			print("error creating file: map_info")
-		end
-
-		file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "w")
-
-		if file then
-			local t = {}
-			for i = 1, n do
-				t[i] = {0, 0}
-			end
-			file:write(json.encode(t))
-			file:close()
-		else
-			print("error creating file: offsets")
-		end
-
-		file = io.open(IMAGE_DATA_PATH.."exported_map/scenario.json", "w")
-
-		if file then
-			local game_data = {
-				custom_map = true,
-				map = map_id,
-				id = "generated_scenario",
-				year = 0,
-				technology_lvl = 0,
-				player_land = "Civilization",
-				lands = {
-					Civilization = {
-						capital = 1,
-						color = { 102, 204, 0 },
-						name = "Civilization"
-					},
-					Undeveloped_land = {
-						color = { 200, 200, 200 },
-						name = "undeveloped_land"
-					},
-				},
-				provinces = {
-				}
-			}
-			local province_for_player = true
-			for i = 1, n do
-				if string.byte(water_data, i) == 1 then
-					game_data.provinces[i] = {
-						water = true
-					}
-				else
-					if province_for_player then
-						game_data.provinces[i] = {
-							o = "Civilization"
-						}
-						province_for_player = false
-					else
-						game_data.provinces[i] = {
-							o = "Undeveloped_land"
-						}
-					end
-				end
-			end
-			file:write(json.encode(game_data))
-			file:close()
-		else
-			print("error creating file: scenario.json")
-		end
-
-		file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "r")
-
-		-- Validate adjacency list
-		if file then
-			local adjacency_list = {}
-
-			local data = file:read("*a")
-			file:close()
-
-			local first = true
-			for line in string.gmatch(data, "[^\n]+") do
-				local prov = nil
-				for i in string.gmatch(line, "%S+") do
-					i = tonumber(i)
-					if first then
-						first = false
-						prov = i
-						adjacency_list[i] = {}
-					else
-						table.insert(adjacency_list[prov], i)
-					end
-				end
-				first = true
-			end
-			for k, v in pairs(adjacency_list) do
-				for key, val in pairs(v) do
-					if not lume.match(adjacency_list[val], function(x)
-						return x == k
-					end) then
-						print("\n ERROR ON PROVINCES: ", k, val)
-						table.insert(adjacency_list[val], k)
-						print("Fixed!")
-					end
-				end
-			end
-
-			file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "w")
-
-			for k, v in pairs(adjacency_list) do
-				file:write(k.." ")
-				for key, val in pairs(v) do
-					file:write(val.." ")
-				end
-				file:write("\n")
-			end
-			file:close()
-		else
-			print("error validating file: adjacency.dat")
-		end
-
 	end
 end
 

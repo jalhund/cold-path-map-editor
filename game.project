@@ -39,6 +39,8 @@ app_icon_72x72 = /images/icons/72.png
 app_icon_96x96 = /images/icons/96.png
 app_icon_144x144 = /images/icons/144.png
 app_icon_192x192 = /images/icons/192.png
+display_cutout = 0
+immersive_mode = 1
 
 [script]
 shared_state = 1

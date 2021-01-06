@@ -1645,6 +1645,41 @@ static int draw_bezier_lua(lua_State * L) {
   return 0;
 }
 
+// To display export progress
+dmScript::LuaCallbackInfo* g_MyCallbackInfo = 0;
+
+static void InvokeCallback(dmScript::LuaCallbackInfo* cbk, double progress)
+{
+  if (!dmScript::IsCallbackValid(cbk))
+      return;
+
+  lua_State* L = dmScript::GetCallbackLuaContext(cbk);
+  DM_LUA_STACK_CHECK(L, 0)
+
+  if (!dmScript::SetupCallback(cbk))
+  {
+      dmLogError("Failed to setup callback");
+      return;
+  }
+
+  lua_pushnumber(L, progress);
+
+  // printf("Call lua callback %f\n", progress);
+
+  dmScript::PCall(L, 2, 0); // instance + 2
+
+  dmScript::TeardownCallback(cbk);
+}
+
+static int register_progress_callback(lua_State* L)
+{
+    DM_LUA_STACK_CHECK(L, 0);
+
+    g_MyCallbackInfo = dmScript::CreateCallback(L, 1);
+
+    return 0;
+}
+
 static int set_pixel(lua_State * L) {
   int top = lua_gettop(L) + 5;
 
@@ -2160,17 +2195,26 @@ static void save_adjacency(int * adjacency_list, int size, char * file_path) {
   free(file_name);
 }
 
+struct ExportData {
+  char* file_path;
+  bool generate_adjacency;
+  dmArray<Color> colors;
+  int* adjacency_list;
+  int num_of_provinces;
+} export_data;
+
+Timer timer;
+
 static int handle_image(lua_State * L) {
-  int top = lua_gettop(L) + 5;
+  int top = lua_gettop(L) + 3;
 
   read_and_validate_buffer_info(L, 1);
 
   int32_t n = 0; // Num of provinces
 
-  dmArray < Color > colors;
-  colors.SetCapacity(4096); // Max count of provinces
+  export_data.colors.SetCapacity(4096); // Max count of provinces
 
-  Timer timer;
+  timer.reset();
 
   for (uint32_t i = 0; i < buffer_info.src_size; i += 4) {
     if (buffer_info.bytes[i + 3]) {
@@ -2178,47 +2222,57 @@ static int handle_image(lua_State * L) {
       cur_color.r = buffer_info.bytes[i];
       cur_color.g = buffer_info.bytes[i + 1];
       cur_color.b = buffer_info.bytes[i + 2];
-      if (find_element(colors, cur_color) == -1) {
+      if (find_element(export_data.colors, cur_color) == -1) {
         // printf("New color: %d, %d, %d\n", buffer_info.bytes[i], buffer_info.bytes[i + 1], buffer_info.bytes[i + 2]);
-        colors.Push(cur_color);
+        export_data.colors.Push(cur_color);
       }
     }
   }
 
-  erase_system_colors(colors);
+  erase_system_colors(export_data.colors);
 
-  char * file_path = (char * ) luaL_checkstring(L, 2);
+  export_data.file_path = (char * ) luaL_checkstring(L, 2);
 
   int i = 0;
 
-  bool generate_adjacency = lua_toboolean(L, 3);
-  char * water_provinces = (char * ) luaL_checkstring(L, 4);
+  export_data.generate_adjacency = lua_toboolean(L, 3);
 
-  int * adjacency_list;
-
-  if (generate_adjacency) {
-    adjacency_list = new int[colors.Size() * colors.Size()];
-    for (int i = 0; i < colors.Size() * colors.Size(); ++i) {
-      adjacency_list[i] = 0;
+  if (export_data.generate_adjacency) {
+    export_data.adjacency_list = new int[export_data.colors.Size() * export_data.colors.Size()];
+    for (int i = 0; i < export_data.colors.Size() * export_data.colors.Size(); ++i) {
+      export_data.adjacency_list[i] = 0;
     }
   }
 
   used_124 = used_252 = used_508 = used_1020 = used_2044 = 0;
+  export_data.num_of_provinces = export_data.colors.Size();
 
-  for (i = 0; i < colors.Size(); ++i) {
-    // printf("Color: %d, %d, %d \n", colors[i].r, colors[i].g, colors[i].b);
-    // printf("Export province %d. Color: %d, %d, %d", i, colors[i].r, colors[i].g, colors[i].b)
-    printf("Export provinces: %.2f%%. Generate adjacency: %d\n", (double) i / colors.Size() * 100, generate_adjacency);
-    fflush(stdout);
-    water_provinces[i] = export_province(colors[i], i, file_path, generate_adjacency, colors, adjacency_list, colors.Size());
-  }
+  lua_pushnumber(L, export_data.colors.Size());
+  return 1;
+}
 
+static int export_image(lua_State * L) {
+  int i = luaL_checknumber(L, 1);
+  char* water_provinces = (char*)luaL_checkstring(L, 2);
+
+  printf("Export: %d", i);
+
+  printf("Export provinces: %.2f%%. Generate adjacency: %d\n", (double) i / export_data.num_of_provinces * 100, export_data.generate_adjacency);
+  fflush(stdout);
+  InvokeCallback(g_MyCallbackInfo,  (double) i / export_data.num_of_provinces * 100);
+  water_provinces[i] = export_province(export_data.colors[i], i, export_data.file_path, 
+    export_data.generate_adjacency, export_data.colors, export_data.adjacency_list,
+    export_data.num_of_provinces);
+
+  return 0;
+}
+
+static int finish_export(lua_State * L) {
   printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
     used_508, used_1020, used_2044);
 
-  lua_pushnumber(L, i);
-  // assert(top == lua_gettop(L));
-  if (generate_adjacency) {
+ // assert(top == lua_gettop(L));
+  if (export_data.generate_adjacency) {
     // For debug
     // for (int i = 0; i < colors.Size(); ++i)
     // {
@@ -2230,12 +2284,18 @@ static int handle_image(lua_State * L) {
     //  }
     //  printf("\n");
     // }
-    save_adjacency(adjacency_list, colors.Size(), file_path);
-    delete[] adjacency_list;
+    save_adjacency(export_data.adjacency_list, export_data.colors.Size(), export_data.file_path);
+    delete[] export_data.adjacency_list;
   }
 
   printf("Done! Elapsed: %f\n", timer.elapsed());
-  return 1;
+  InvokeCallback(g_MyCallbackInfo, 100);
+
+  if (g_MyCallbackInfo)
+    dmScript::DestroyCallback(g_MyCallbackInfo);
+    g_MyCallbackInfo = 0;
+
+  return 0;
 }
 
 static int get_file_data(lua_State * L) {
@@ -2400,8 +2460,20 @@ const luaL_reg Module_methods[] = {
     handle_image
   },
   {
+    "export_image",
+    export_image
+  },
+  {
+    "finish_export",
+    finish_export
+  },
+  {
     "get_file_data",
     get_file_data
+  },
+  {
+    "register_progress_callback",
+    register_progress_callback
   },
 
   {
