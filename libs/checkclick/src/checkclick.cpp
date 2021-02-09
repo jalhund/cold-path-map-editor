@@ -6,7 +6,7 @@
 #include <iostream>
 #include <string.h> 
 
-const static int MAX_IMAGE_COUNT = 512;
+const static int MAX_IMAGE_COUNT = 1024;
 
 struct ImageData {
     char* id;

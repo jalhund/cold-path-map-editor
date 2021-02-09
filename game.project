@@ -61,7 +61,7 @@ max_count = 1365
 max_count = 1364
 
 [collection]
-max_instances = 1364
+max_instances = 2048
 
 [native_extension]
 app_manifest = /main/generated.appmanifest
