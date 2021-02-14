@@ -5,6 +5,9 @@
 #define DLIB_LOG_DOMAIN LIB_NAME
 #define M_PI 3.14159265358979323846
 
+// This is necessary if we need to save images to one of the readable image formats. PPM can be converted to PNG
+#define EXPORT_TO_PPM false
+
 #include <dmsdk/sdk.h>
 #include <math.h>
 #include <stdlib.h>
@@ -1872,7 +1875,7 @@ static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_
   // Blurring
   double average = 0;
   int count_number = 0;
-  int box = 2; // set 1 to have a 3x3 box
+  int box = 1; // set 1 to have a 3x3 box
 
   for (int i = min_y; i <= max_y; ++i) {
     for (int j = min_x; j <= max_x; ++j) {
@@ -1904,6 +1907,39 @@ static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_
     }
   }
   return blurred_image;
+}
+
+static void export_to_ppm(char * file_path, int n, uint8_t* bytes, int min_x, int max_x, int min_y, int max_y)
+{
+  FILE * fp;
+
+  n = n + 1;
+
+  std::string num_string = std::to_string(n);
+  const char* num = num_string.c_str();
+
+  char* ppm_path = concat(file_path, "exported_map/ppm_");
+  char* ppm_name = concat(ppm_path, num);
+
+  if ((fp = fopen(ppm_name, "w")) == NULL) {
+    printf("File open error");
+    free(ppm_path);
+    free(ppm_name);
+    return;
+  }
+
+  fprintf(fp, "P3 %d %d 255\n", max_x - min_x + 1, max_y - min_y + 1);
+
+  for (int i = max_y; i >= min_y; --i) {
+    for (int j = min_x; j <= max_x; ++j)
+      fprintf(fp, "%d %d %d\n", bytes[i * buffer_info.width + j], bytes[i * buffer_info.width + j], bytes[i * buffer_info.width + j]);
+  }
+
+  printf("Export to PPM: %d\n", n);
+
+  fclose(fp);
+  free(ppm_path);
+  free(ppm_name);
 }
 
 static bool export_province(Color & color, int n, char * file_path, bool generate_adjacency, dmArray < Color > & colors,
@@ -1954,6 +1990,10 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
       }
     }
   }
+
+  if(EXPORT_TO_PPM)
+    export_to_ppm(file_path, n, blurred_image, min_x, max_x, min_y, max_y);
+
   // size of provinces must be a multiple of two
   if ((max_x - min_x + 1) % 2)
     if (min_x > 0)
@@ -2037,7 +2077,11 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
   char* generated_data_file_path = concat(file_path, "exported_map/generated_data/");
   char* generated_data_file_name = concat(generated_data_file_path, num);
 
-  if ((fp = fopen(generated_data_file_name, "wb")) == NULL) {
+  char* file_mode = "wb";
+  if(EXPORT_TO_PPM)
+  	file_mode = "w";
+
+  if ((fp = fopen(generated_data_file_name, file_mode)) == NULL) {
     printf("File open error");
     free(generated_data_file_path);
     free(generated_data_file_name);
@@ -2048,7 +2092,19 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
     return 0;
   }
 
-  fwrite(output_generated_data, 1, texture_size * texture_size, fp);
+  if(EXPORT_TO_PPM)
+  {
+  	fprintf(fp, "1");
+  	for (int i = 0; i < texture_size; ++i)
+  	{
+  	  for (int j = 0; j < texture_size; ++j)
+      {
+        fprintf(fp, "%d", output_generated_data[i*texture_size+j] == 255);
+      }
+  	}
+  }
+  else
+  	fwrite(output_generated_data, 1, texture_size * texture_size, fp);
 
   fclose(fp);
 

@@ -51,6 +51,10 @@ function init(self)
 	-- else
 	-- 	print("Error create atlas description")
 	-- end
+
+	-- To convert to in-game format. n is number of provinces
+	-- local compress_generated_data = require "scripts.compress_generated_data"
+	-- compress_generated_data.work(294)
 end
 
 function on_input(self, action_id, action)
