@@ -1991,9 +1991,6 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
     }
   }
 
-  if(EXPORT_TO_PPM)
-    export_to_ppm(file_path, n, blurred_image, min_x, max_x, min_y, max_y);
-
   // size of provinces must be a multiple of two
   if ((max_x - min_x + 1) % 2)
     if (min_x > 0)
@@ -2006,6 +2003,9 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
       min_y = min_y - 1;
     else
       max_y = max_y + 1;
+
+  if(EXPORT_TO_PPM)
+    export_to_ppm(file_path, n, blurred_image, min_x, max_x, min_y, max_y);
   // For debug. UPD: it does not work
   // for (int i = 0; i < buffer_info.height; i++)
   // {
@@ -2095,11 +2095,11 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
   if(EXPORT_TO_PPM)
   {
   	fprintf(fp, "1");
-  	for (int i = 0; i < texture_size; ++i)
+  	for (int i = max_y; i >= min_y; --i)
   	{
-  	  for (int j = 0; j < texture_size; ++j)
+  	  for (int j = min_x; j <= max_x; ++j)
       {
-        fprintf(fp, "%d", output_generated_data[i*texture_size+j] == 255);
+        fprintf(fp, "%d", bytes[i * buffer_info.width + j] == 255 ? 1 : 0);
       }
   	}
   }
