@@ -1,5 +1,6 @@
 [project]
 title = Cold Path Map Editor
+dependencies#0 = https://github.com/rgrams/debug-draw/archive/master.zip
 
 [bootstrap]
 main_collection = /main/main.collectionc

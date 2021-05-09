@@ -1,6 +1,7 @@
 local camera = require "libs.orthographic.camera"
 local check_click = require "scripts.check_click"
 local provinces = require "go.provinces"
+local debugdraw = require("debug-draw.debug-draw")
 
 local offset_texts = {}
 
@@ -26,6 +27,7 @@ local scaling = {
 }
 
 local change_offset = false
+local change_adjacency = false
 
 go.property("common24", resource.font("/font/common24.font"))
 go.property("distancefield", resource.material("/materials/distancefield.material"))
@@ -36,6 +38,9 @@ go.property("atlas_1020", resource.atlas("/atlas/map/extra_large.atlas"))
 go.property("atlas_2044", resource.atlas("/atlas/map/maximum.atlas"))
 
 local map_data
+local adjacency_data = {}
+
+local last_province
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
@@ -47,6 +52,7 @@ function init(self)
 	end
 
 	local json_data = file:read("*a")
+	file:close()
 
 	map_data = json.decode(json_data)
 
@@ -55,6 +61,7 @@ function init(self)
 		print("error opening file: offsets.json")
 	end
 	json_data = file:read("*a")
+	file:close()
 
 	map_data.offset = json.decode(json_data)
 
@@ -81,6 +88,54 @@ function init(self)
 			sprite.set_constant(provinces.provinces[i], "tint", water_color)
 		end
 	end
+
+	file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "r")
+	local data = file:read("*a")
+	file:close()
+
+	local first = true
+	for line in string.gmatch(data, "[^\n]+") do
+		local prov = nil
+		for i in string.gmatch(line, "%S+") do
+			if first then
+				first = false
+				prov = tonumber(i)
+				adjacency_data[tonumber(i)] = {}
+			else
+				table.insert(adjacency_data[prov], tonumber(i))
+			end
+		end
+		first = true
+	end
+end
+
+local function draw_circles(province)
+	local t = adjacency_data[province]
+	local start_pos = go.get_world_position(provinces.provinces[province]) +
+		vmath.vector3(map_data.offset[province][1], map_data.offset[province][2], 0)
+	debugdraw.circle(start_pos.x, start_pos.y, 16, vmath.vector4(0, 0, 0, 1), 8)
+
+	for _,val in pairs(t) do
+		local pos = go.get_world_position(provinces.provinces[val]) +
+		vmath.vector3(map_data.offset[val][1], map_data.offset[val][2], 0)
+		debugdraw.circle(pos.x, pos.y, 16, vmath.vector4(0, 0, 0, 1), 8)
+	end
+end
+
+local function draw_adjacency_line(province)
+	local t = adjacency_data[province]
+	local start_pos = go.get_world_position(provinces.provinces[province])
+
+	for _,val in pairs(t) do
+		local color = vmath.vector4(0.7,0.7,0.7, 1)
+		if val == last_province or province == last_province then
+			color = vmath.vector4(0,0,0,1)
+		end
+		local end_pos = go.get_world_position(provinces.provinces[val])
+		msg.post("@render:", "draw_line", { start_point = start_pos + 
+			vmath.vector3(map_data.offset[val][1], map_data.offset[val][2], 0)
+		, end_point = end_pos + vmath.vector3(map_data.offset[val][1], map_data.offset[val][2], 0), color = color })
+	end
 end
 
 function update(self, dt)
@@ -97,16 +152,28 @@ function update(self, dt)
 		scaling.ratio_change = false
 		limit_offset()
 	end
+
+	if change_adjacency then
+		if last_province then
+			draw_circles(last_province)
+		end
+		for k, v in pairs(game_data.provinces) do
+			draw_adjacency_line(k)
+		end
+	end
 end
 
 local HASH_CURSOR = hash("cursor")
 local HASH_SCROLL = hash("scroll")
+local HASH_ON_KEY = hash("on_key")
 
 function on_message(self, message_id, message, sender)
 	if message_id == HASH_CURSOR then
 		cursor(self, message.action)
 	elseif message_id == HASH_SCROLL then
 		scroll(message.action_id, message.action)
+	elseif message_id == HASH_ON_KEY then
+		on_key(message.action_id, message.action)
 	elseif message_id == hash("late_init") then
 		provinces.late_init(self, map_data)
 	elseif message_id == hash("set_change_offset") then
@@ -114,6 +181,21 @@ function on_message(self, message_id, message, sender)
 		local file = io.open(IMAGE_DATA_PATH.."exported_map/offsets.json", "w")
 		if file then
 			file:write(json.encode(map_data.offset))
+			file:close()
+		else
+			print("Error open file and change value")
+		end
+	elseif message_id == hash("set_change_adjacency") then
+		change_adjacency = message.value
+		local file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "w")
+		if file then
+			for k, v in pairs(adjacency_data) do
+				file:write(k)
+				for key, val in pairs(v) do
+					file:write(" "..val)
+				end
+				file:write("\n")
+			end
 			file:close()
 		else
 			print("Error open file and change value")
@@ -260,7 +342,25 @@ function scroll(action_id, action)
 	end
 end
 
-local last_province
+local selected_province = nil
+
+function on_key(action_id, action)
+	if change_adjacency and action.released  then
+		if action_id == hash("f1") then
+			selected_province = last_province
+		elseif action_id == hash("f2") then
+			if last_province and selected_province and last_province ~= selected_province then
+				table.insert(adjacency_data[selected_province], last_province)
+				table.insert(adjacency_data[last_province], selected_province)
+			end
+		elseif action_id == hash("f3") then
+			if last_province and selected_province then
+				lume.remove(adjacency_data[selected_province], last_province)
+				lume.remove(adjacency_data[last_province], selected_province)
+			end
+		end
+	end
+end
 
 function cursor(self, action)
 	if action.released and click_for_select then
@@ -270,7 +370,7 @@ function cursor(self, action)
 			if check_click.check(provinces.provinces[k], pos.x, pos.y, tostring(k)) then
 				if last_province then
 					go.set(msg.url(nil, offset_texts[last_province], "label"), "color", vmath.vector4(1, 1, 1, 1))
-					if provinces.provinces_data[k].water then
+					if provinces.provinces_data[last_province].water then
 						sprite.set_constant(provinces.provinces[last_province], "tint", water_color)
 					else
 						sprite.set_constant(provinces.provinces[last_province], "tint", vmath.vector4(1, 1, 1,1))

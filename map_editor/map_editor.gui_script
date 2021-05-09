@@ -1,6 +1,7 @@
 local gooey = require "gooey.gooey"
 
 local change_offset = false
+local change_adjacency = false
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
@@ -25,21 +26,33 @@ function on_message(self, message_id, message, sender)
 end
 
 function on_input(self, action_id, action)
-	gooey.button("mode_outline", action_id, action, function()
-		local indicator = gui.get_node("mode_indicator")
+	gooey.button("change_offset_outline", action_id, action, function()
+		local indicator = gui.get_node("change_offset_indicator")
 		change_offset = not change_offset
 		msg.post("map:/map#map", "set_change_offset", {
 			value = change_offset
 		})
 		gui.set_color(indicator, change_offset and vmath.vector4(0.7, 0.9, 0.71, 1) or vmath.vector4(1, 0.7, 0.7, 1))
 		click_for_select = false
+	end)
 
-		
+	gooey.button("change_adjacency_outline", action_id, action, function()
+		local indicator = gui.get_node("change_adjacency_indicator")
+		change_adjacency = not change_adjacency
+		msg.post("map:/map#map", "set_change_adjacency", {
+			value = change_adjacency
+		})
+		gui.set_color(indicator, change_adjacency and vmath.vector4(0.7, 0.9, 0.71, 1) or vmath.vector4(1, 0.7, 0.7, 1))
+		click_for_select = false
 	end)
 
 	msg.post("map:/map#map", "scroll", { action_id = action_id, action = action} )
 	if action_id == hash("touch") then
 		msg.post("map:/map#map", "cursor", { action = action} )
+	end
+
+	if action_id == hash("f1") or action_id == hash("f2") or action_id == hash("f3") then
+		msg.post("map:/map#map", "on_key", { action_id = action_id, action = action} )
 	end
 end
 
