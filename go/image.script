@@ -342,7 +342,15 @@ function on_message(self, message_id, message, sender)
 				finish_export(n, water_data)
 				timer.cancel(handle)
 			else
-				drawpixels.export_image(self.i, water_data)
+				local err = drawpixels.export_image(self.i, water_data)
+				if err ~= 0 then
+					msg.post("map_creator:/map_creator#map_creator", "error_code", {
+						code = err
+					})
+					msg.post("map_creator:/map_creator#map_creator", "finish_export")
+					timer.cancel(handle)
+					refresh_texture(self)
+				end
 				self.i = self.i + 1
 			end
 		end)

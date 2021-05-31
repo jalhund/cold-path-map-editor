@@ -19,9 +19,15 @@ function M.set_callback(callback)
 	set_page = callback
 end
 
+local errors = {
+	[-1] = "ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044"
+}
+
 function M.on_message(self, message_id, message, sender)
 	if message_id == hash("finish_export") then
 		self.exporting = false
+	elseif message_id == hash("error_code") then
+		gui.set_text(gui.get_node("progress_test"), "Error: "..errors[message.code])
 	end
 end
 

@@ -1844,6 +1844,18 @@ char * concat(const char * s1, const char * s2) {
   return result;
 }
 
+static void replace_color(Color c1, Color c2)
+{
+  for (int32_t i = 0; i < buffer_info.src_size; i += 4) {
+    if (buffer_info.bytes[i] == c1.r && buffer_info.bytes[i + 1] == c1.g &&
+      buffer_info.bytes[i + 2] == c1.b) {
+        buffer_info.bytes[i] = c2.r;
+        buffer_info.bytes[i + 1] = c2.g;
+        buffer_info.bytes[i + 2] = c2.b;
+    }
+  }
+}
+
 // 124 instead 128 because there is extrude borders
 static int used_124, used_252, used_508, used_1020, used_2044;
 static int max_124 = 1024, max_252 = 256, max_508 = 64, max_1020 = 16, max_2044 = 4;
@@ -1864,6 +1876,7 @@ static int get_size_for_texture(int size_x, int size_y) {
   printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
     used_508, used_1020, used_2044);
   fflush(stdout);
+  return 0;
 }
 
 static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_y) {
@@ -1942,7 +1955,7 @@ static void export_to_ppm(char * file_path, int n, uint8_t* bytes, int min_x, in
   free(ppm_name);
 }
 
-static bool export_province(Color & color, int n, char * file_path, bool generate_adjacency, dmArray < Color > & colors,
+static int export_province(Color & color, int n, char * file_path, bool generate_adjacency, dmArray < Color > & colors,
   int* adjacency_list, int num_of_provinces) {
   uint8_t* bytes = new uint8_t[buffer_info.width * buffer_info.height];
 
@@ -2037,6 +2050,17 @@ static bool export_province(Color & color, int n, char * file_path, bool generat
     used_1020++;
   if (texture_size == 2044)
     used_2044++;
+  if (texture_size == 0)
+  {
+  	Color white_color;
+  	white_color.r = 255;
+  	white_color.g = 255;
+  	white_color.b = 255;
+  	replace_color(color, white_color);
+  	delete[] bytes;
+    delete[] blurred_image;
+  	return -1;
+  }
 
   uint8_t * output_generated_data = new uint8_t[texture_size * texture_size];
   uint8_t * output_blurred_data = new uint8_t[texture_size * texture_size];
@@ -2319,8 +2343,11 @@ static int export_image(lua_State * L) {
   water_provinces[i] = export_province(export_data.colors[i], i, export_data.file_path, 
     export_data.generate_adjacency, export_data.colors, export_data.adjacency_list,
     export_data.num_of_provinces);
-
-  return 0;
+  if(water_provinces[i] == -1) 
+  	lua_pushnumber(L, -1);
+  else
+  	lua_pushnumber(L, 0);
+  return 1;
 }
 
 static int finish_export(lua_State * L) {
