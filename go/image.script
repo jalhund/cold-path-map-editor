@@ -335,6 +335,7 @@ function on_message(self, message_id, message, sender)
 		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true)
 		self.i = 0
 
+		self.error_code = 0
 		timer.delay(0.01, true, function(self, handle, _)
 			if self.i == n then
 				msg.post("map_creator:/map_creator#map_creator", "finish_export")
@@ -342,10 +343,10 @@ function on_message(self, message_id, message, sender)
 				finish_export(n, water_data)
 				timer.cancel(handle)
 			else
-				local err = drawpixels.export_image(self.i, water_data)
-				if err ~= 0 then
+				self.error_code = drawpixels.export_image(self.i, water_data)
+				if self.error_code ~= 0 then
 					msg.post("map_creator:/map_creator#map_creator", "error_code", {
-						code = err
+						code = self.error_code
 					})
 					msg.post("map_creator:/map_creator#map_creator", "finish_export")
 					timer.cancel(handle)

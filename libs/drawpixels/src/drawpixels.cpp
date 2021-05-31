@@ -2059,7 +2059,7 @@ static int export_province(Color & color, int n, char * file_path, bool generate
   	replace_color(color, white_color);
   	delete[] bytes;
     delete[] blurred_image;
-  	return -1;
+  	return 2;
   }
 
   uint8_t * output_generated_data = new uint8_t[texture_size * texture_size];
@@ -2343,7 +2343,7 @@ static int export_image(lua_State * L) {
   water_provinces[i] = export_province(export_data.colors[i], i, export_data.file_path, 
     export_data.generate_adjacency, export_data.colors, export_data.adjacency_list,
     export_data.num_of_provinces);
-  if(water_provinces[i] == -1) 
+  if(water_provinces[i] == 2) // 2 is code of error. Not -1 to avoid overflow errors 
   	lua_pushnumber(L, -1);
   else
   	lua_pushnumber(L, 0);
