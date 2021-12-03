@@ -240,6 +240,12 @@ local function finish_export(n, water_data)
 	else
 		print("error validating file: adjacency.dat")
 	end
+
+    -- Compress files
+    for i = 1, n do
+        lzs.compress(IMAGE_DATA_PATH.."exported_map/blurred_data/" .. i)
+        lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
+    end
 end
 
 function on_message(self, message_id, message, sender)
