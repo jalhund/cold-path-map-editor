@@ -4,7 +4,9 @@
 // include the Defold SDK
 #include <dmsdk/sdk.h>
 #include <iostream>
+#include "stdio.h"
 #include <string.h> 
+#include "lzs.h"
 
 const static int MAX_IMAGE_COUNT = 1024;
 
@@ -52,8 +54,15 @@ static int load_generated_data_from_file(lua_State* L)
     imageData.size = size;
     imageData.data = new uint8_t[size];
 
-    int c = fread(imageData.data, 1, size, fp);
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
 
+    uint8_t *compressed_bytes = (uint8_t*)malloc(fsize);
+    fread(compressed_bytes, 1, fsize, fp);
+  
+    int c = lzs_decompress(imageData.data, size, compressed_bytes, fsize);
+    free(compressed_bytes);
     fclose(fp);
 
     imageList.imageCount++;

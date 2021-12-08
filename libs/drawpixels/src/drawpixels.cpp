@@ -16,6 +16,7 @@
 #include <string>
 #include <stack>
 #include <stdio.h>
+#include "lzs.h"
 
 // For profiling
 #include <chrono>
@@ -2424,7 +2425,15 @@ static int get_file_data(lua_State * L) {
 
   // printf("y and x offsets: %d, %d, %d\n", y_offset, x_offset, id);
 
-  int c = fread(bytes, 1, width * height, fp);
+  fseek(fp, 0, SEEK_END);
+  long fsize = ftell(fp);
+  fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
+
+  uint8_t *compressed_bytes = (uint8_t*)malloc(fsize);
+  fread(compressed_bytes, 1, fsize, fp);
+
+  int c = lzs_decompress(bytes, width*height, compressed_bytes, fsize);
+  free(compressed_bytes);
   // printf("Loaded bytes: %d, %d\n", width * height, c);
 
 
