@@ -74,7 +74,18 @@ local function on_clicked_tool_line()
 	click_for_select = false
 end
 
+local sys_buttons = {
+    "tool_nothing/outline",
+    "tool_draw/outline",
+    "tool_line/outline"
+}
+
 function M.on_input(self, action_id, action)
+    for k,v in pairs(sys_buttons) do
+        if action_id == hash("touch") and action.pressed and gui.pick_node(gui.get_node(v),action.x,action.y) then
+            click_for_select = false
+        end
+    end
 	gooey.button("save/outline", action_id, action, function()
 		msg.post("image:/go#image", "save_to_file")
 		click_for_select = false
