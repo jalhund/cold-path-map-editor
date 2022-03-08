@@ -255,6 +255,8 @@ function on_message(self, message_id, message, sender)
 		scroll(message.action_id, message.action)
 	elseif message_id == hash("late_init") then
 		refresh_texture(self)
+    elseif message_id == hash("set_size") then
+        image_data.size = message.size
 	elseif message_id == hash("save_to_file") then
 		local file = io.open(IMAGE_DATA_PATH.."image_data", "wb")
 

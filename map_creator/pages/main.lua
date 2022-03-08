@@ -54,6 +54,34 @@ function M.on_input(self, action_id, action)
 		drawpixels.register_progress_callback(update_progress)
 		msg.post("image:/go#image", "export_map")
 	end, update_button_menu)
+	gooey.button("load_map/outline", action_id, action, function()
+	    local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "r")
+	    if file then
+		    drawpixels.clear_map()
+		    
+		    local json_data = file:read("*a")
+	        file:close()
+
+	        map_data = json.decode(json_data)
+	        
+	        msg.post("image:/go#image", "set_size", {
+	            size = vmath.vector3(map_data.size[1], map_data.size[2], 0)
+	        })
+
+            for i = 1, map_data.num_of_provinces do
+                local f = io.open(IMAGE_DATA_PATH.."exported_map/description/"..i, "r")
+                if not f then
+                    debug_log("Error open file description: ", i)
+                end
+                local d = f:read("*a")
+                f:close()
+                d = json.decode(d)
+                drawpixels.load_province(IMAGE_DATA_PATH.."exported_map/generated_data/"..i, d.position[1], d.position[2], d.size[1])
+            end
+
+		    msg.post("image:/go#image", "late_init")
+		end
+	end, update_button_menu)
 end
 
 return M

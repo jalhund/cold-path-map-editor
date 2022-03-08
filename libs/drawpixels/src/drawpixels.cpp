@@ -2459,6 +2459,63 @@ static int get_file_data(lua_State * L) {
   return 0;
 }
 
+static int clear_map(lua_State * L) {
+  for (uint32_t i = 0; i < buffer_info.src_size; i++) {
+      buffer_info.bytes[i] = 0;
+  }
+  return 0;
+}
+
+static int load_province(lua_State * L) {
+  int top = lua_gettop(L) + 4;
+
+  char *file_name = (char * ) luaL_checkstring(L, 1);
+  int x = luaL_checknumber(L, 2);
+  int y = luaL_checknumber(L, 3);
+  int size = luaL_checknumber(L, 4);
+  
+  uint8_t * bytes = new uint8_t[size*size];
+
+  FILE * fp;
+
+  if ((fp = fopen(file_name, "rb")) == NULL) {
+    printf("File open error");
+    // assert(top == lua_gettop(L));
+    delete[] bytes;
+    return 0;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  long fsize = ftell(fp);
+  fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
+
+  uint8_t *compressed_bytes = (uint8_t*)malloc(fsize);
+  fread(compressed_bytes, 1, fsize, fp);
+
+  int c = lzs_decompress(bytes, size*size, compressed_bytes, fsize);
+  free(compressed_bytes);
+  
+  for (int i = y; i < y + size; ++i) {
+    for (int j = x; j < x + size; ++j) {
+      if (in_buffer(j, i) && bytes[(i - y) * size + (j - x)])
+      {
+        buffer_info.bytes[xytoi(j - size/2,i - size/2)] = 255;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 1] = 255;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 2] = 255;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 3] = 255;
+      }
+    }
+  }
+
+  fclose(fp);
+
+  // assert(top == lua_gettop(L));
+  delete[] bytes;
+
+  return 0;
+}
+
+
 // Functions exposed to Lua
 static
 const luaL_reg Module_methods[] = {
@@ -2566,6 +2623,14 @@ const luaL_reg Module_methods[] = {
   {
     "register_progress_callback",
     register_progress_callback
+  },
+  {
+    "clear_map",
+    clear_map
+  },
+  {
+    "load_province",
+    load_province
   },
 
   {
