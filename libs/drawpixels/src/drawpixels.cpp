@@ -2187,8 +2187,8 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     for (int i = 0; i < buffer_info.width * buffer_info.height; ++i) {
       outline_bytes[i] = 0;
     }
-    for (int i = min_y + 1; i < max_y - 1; ++i) {
-      for (int j = min_x + 1; j < max_x - 1; ++j) {
+    for (int i = min_y; i < max_y + 1; ++i) {
+      for (int j = min_x; j < max_x + 1; ++j) {
         // If near different color
         if (bytes[i * buffer_info.width + j] && (
             !bytes[i * buffer_info.width + j + 1] ||
@@ -2197,6 +2197,11 @@ static int export_province(Color & color, int n, char * file_path, bool generate
             !bytes[(i - 1) * buffer_info.width + j]
           )) {
           outline_bytes[i * buffer_info.width + j] = 255;
+          // For debug outline
+          //buffer_info.bytes[xytoi(j, i)] = 255;
+          //buffer_info.bytes[xytoi(j, i) + 1] = 254;
+          //buffer_info.bytes[xytoi(j, i) + 2] = 254;
+          //buffer_info.bytes[xytoi(j, i) + 3] = 254;
         }
       }
     }
@@ -2210,8 +2215,8 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     colors_found.SetCapacity(num_of_provinces);
 
     int r = 5; // look for a neighbor in 25x25 area around the pixel
-    for (int i = min_y + r; i <= max_y - r; ++i) {
-      for (int j = min_x + r; j <= max_x - r; ++j) {
+    for (int i = min_y - r; i <= max_y + r; ++i) {
+      for (int j = min_x - r; j <= max_x + r; ++j) {
         if (outline_bytes[i * buffer_info.width + j]) {
           for (int li = i - r; li <= i + r; ++li) {
             for (int lj = j - r; lj <= j + r; ++lj) {
