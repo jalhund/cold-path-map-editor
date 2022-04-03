@@ -76,7 +76,7 @@ function M.on_input(self, action_id, action)
                 local d = f:read("*a")
                 f:close()
                 d = json.decode(d)
-                drawpixels.load_province(IMAGE_DATA_PATH.."exported_map/generated_data/"..i, d.position[1], d.position[2], d.size[1])
+                drawpixels.load_province(IMAGE_DATA_PATH.."exported_map/generated_data/"..i, d.position[1], d.position[2], d.size[1], d.water)
             end
 
 		    msg.post("image:/go#image", "late_init")

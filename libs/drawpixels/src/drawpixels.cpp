@@ -2500,13 +2500,24 @@ static int load_province(lua_State * L) {
   int c = lzs_decompress(bytes, size*size, compressed_bytes, fsize);
   free(compressed_bytes);
   
+  int c1 = 255;
+  int c2 = 255;
+  int c3 = 255;
+  
+  if(lua_toboolean(L, 5))
+  {
+      c1 = 180;
+      c2 = 210;
+      c3 = 236;
+  }
+  
   for (int i = y; i < y + size; ++i) {
     for (int j = x; j < x + size; ++j) {
       if (in_buffer(j, i) && bytes[(i - y) * size + (j - x)])
       {
-        buffer_info.bytes[xytoi(j - size/2,i - size/2)] = 255;
-        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 1] = 255;
-        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 2] = 255;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2)] = c1;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 1] = c2;
+        buffer_info.bytes[xytoi(j - size/2,i - size/2) + 2] = c3;
         buffer_info.bytes[xytoi(j - size/2,i - size/2) + 3] = 255;
       }
     }
