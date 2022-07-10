@@ -1872,10 +1872,10 @@ static int get_size_for_texture(int size_x, int size_y) {
     return 1020;
   if (size_x <= 2044 && size_y <= 2044 && used_2044 < max_2044)
     return 2044;
-  printf("ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044\n");
   printf("Province data: %dx%d\n", size_x, size_y);
   printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
     used_508, used_1020, used_2044);
+  printf("ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044\n");
   fflush(stdout);
   return 0;
 }
