@@ -31,7 +31,9 @@ local image_data = {
 }
 
 local function refresh_texture(self)
+	print("Start refresh_texture")
 	resource.set_texture(self.resource_path, self.header, self.buffer_info.buffer)
+	print("Texture is updated")
 end
 
 function init(self)
@@ -76,6 +78,7 @@ function init(self)
 	self.rotation = 0
 
 	drawpixels.start_fill()
+	print("finish init of image.script")
 
 	msg.post(".", "late_init")
 end

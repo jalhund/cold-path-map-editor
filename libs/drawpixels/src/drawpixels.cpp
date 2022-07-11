@@ -1762,6 +1762,8 @@ static int set_texture(lua_State * L) {
       }
     }
   }
+
+  printf("Normalize image: %d\n", normalize);
   int water_diff, white_diff; //, black_diff;
   int accuracy = 100;
   if (normalize) {
