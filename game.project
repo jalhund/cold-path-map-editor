@@ -1,6 +1,6 @@
 [project]
 title = Cold Path Map Editor
-version = 1.0.6
+version = 1.0.7
 dependencies#0 = https://github.com/rgrams/debug-draw/archive/master.zip
 
 [bootstrap]
@@ -70,5 +70,4 @@ app_manifest = /main/generated.appmanifest
 
 [windows]
 app_icon = /images/icons/win_icon_256.ico
-
 
