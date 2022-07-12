@@ -2526,9 +2526,10 @@ static int load_province(lua_State * L) {
       c3 = 236;
   }
   
+//   printf("Load province: %s %d %d %d\n", file_name, x, y, size);
   for (int i = y; i < y + size; ++i) {
     for (int j = x; j < x + size; ++j) {
-      if (in_buffer(j, i) && bytes[(i - y) * size + (j - x)])
+      if (bytes[(i - y) * size + (j - x)])
       {
         buffer_info.bytes[xytoi(j - size/2,i - size/2)] = c1;
         buffer_info.bytes[xytoi(j - size/2,i - size/2) + 1] = c2;
