@@ -7,6 +7,7 @@
 
 // This is necessary if we need to save images to one of the readable image formats. PPM can be converted to PNG
 #define EXPORT_TO_PPM false
+#define DRAW_PROVINCES_WHEN_LOAD_MAP false
 
 #include <dmsdk/sdk.h>
 #include <math.h>
@@ -2486,6 +2487,10 @@ static int clear_map(lua_State * L) {
   return 0;
 }
 
+int color_offset_x = 0;
+int color_offset_y = 0;
+int color_offset_z = 128;
+
 static int load_province(lua_State * L) {
   int top = lua_gettop(L) + 4;
 
@@ -2524,6 +2529,30 @@ static int load_province(lua_State * L) {
       c1 = 180;
       c2 = 210;
       c3 = 236;
+  }
+
+    if(DRAW_PROVINCES_WHEN_LOAD_MAP)
+   {
+    c1 = c1 - color_offset_x;
+    c2 = c2 - color_offset_y;
+    
+    color_offset_x = color_offset_x + 8;
+    if(color_offset_x > 240)
+    {
+        color_offset_x = 0;
+        color_offset_y+=8;
+    }
+
+    if(c3 == 255)
+    {
+        c3 = c3 - color_offset_z;
+        if(color_offset_y > 240)
+        {
+            color_offset_y = 0;
+            color_offset_z+=8;
+        }
+    }
+    printf("Generated unique color is: %d %d %d %d\n", c1, c2, color_offset_x, color_offset_y);
   }
   
 //   printf("Load province: %s %d %d %d\n", file_name, x, y, size);

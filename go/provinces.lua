@@ -1,10 +1,23 @@
 local M = {}
 
+local inspect = require "scripts.inspect"
+-- To convert custom maps to in-game format
+local GENERATE_DATA_FOR_IN_GAME_MAP = true
+
 M.provinces = {}
 M.provinces_data = {}
 
 local check_click = require "scripts.check_click"
 local positions_in_atlas = require "go.positions_in_atlas"
+
+local function save_table_to_file(file_name, t)
+    local file = io.open(file_name, "w")
+    if not file then
+        error("Error open file: "..file_name)
+    end
+    file:write("local t = "..inspect(t).."\nreturn t")
+    file:close()
+end
 
 function M.init(self, map_data)
 	provinces = {}
@@ -17,6 +30,11 @@ function M.init(self, map_data)
 	local data
 	local pos
 	check_click.clear()
+
+    local list_of_water_provinces = {}
+    local provinces_positions = {}
+    local provinces_offset = {}
+
 	for i = 1, map_data.num_of_provinces do
 		file = io.open(IMAGE_DATA_PATH.."exported_map/description/"..i, "r")
 		data = file:read("*a")
@@ -29,7 +47,17 @@ function M.init(self, map_data)
 		print("Add province: ", i)
 		check_click.load_from_file(tostring(i), IMAGE_DATA_PATH.."exported_map/generated_data/"..i, M.provinces_data[i].size[1]
 			* M.provinces_data[i].size[2])
+
+        if GENERATE_DATA_FOR_IN_GAME_MAP then
+            table.insert(list_of_water_provinces, M.provinces_data[i].water)
+            table.insert(provinces_positions, M.provinces_data[i].position)
+        end
 	end
+
+    if GENERATE_DATA_FOR_IN_GAME_MAP then
+        save_table_to_file("water_provinces.lua", list_of_water_provinces)
+        save_table_to_file("provinces_positions.lua", provinces_positions)
+    end
 end
 
 function M.late_init(self, map_data)

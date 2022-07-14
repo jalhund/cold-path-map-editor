@@ -5,6 +5,8 @@ local offsetx = 0
 local previous_y = nil
 local previous_x = nil
 
+local GENERATED_DATA_COMPRESS_TO_IN_GAME = false
+
 click_for_select = true
 
 local scaling_min = 0.4
@@ -247,7 +249,16 @@ local function finish_export(n, water_data)
     -- Compress files
     for i = 1, n do
         lzs.compress(IMAGE_DATA_PATH.."exported_map/blurred_data/" .. i)
-        lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
+        if GENERATED_DATA_COMPRESS_TO_IN_GAME then
+			local file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "r")
+			local data = file:read("*a")
+			file:close()
+			file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "w")
+			file:write(zlib.deflate(data))
+			file:close()
+        else
+			lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
+		end
     end
 end
 
@@ -278,6 +289,9 @@ function on_message(self, message_id, message, sender)
 		if file then
 			local data = file:read("*a")
 			drawpixels.set_texture(self.buffer_info, data, 4096, 4096, false, false)
+            image_data = {
+	            size = vmath.vector3(4096, 4096, 0)
+            }
 			file:close()
 		else
 			print("ERROR: load_from_file")
