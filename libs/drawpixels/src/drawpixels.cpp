@@ -1799,12 +1799,54 @@ static int set_texture(lua_State * L) {
   return 0;
 }
 
+static int reverse_image(lua_State *L) {
+    char *image = (char * ) luaL_checkstring(L, 1);
+    int32_t width = luaL_checknumber(L, 2);
+    int32_t height = luaL_checknumber(L, 3);
+
+    uint8_t* image_bytes = new uint8_t[width * height * 4];
+
+    for(size_t i =  0;i < height;i++)
+        {
+        for(size_t j = 0; j < width;j++)
+        {
+            image_bytes[(width*i + j)*4] = image[(width*(height - i - 1) + j)*4];
+            image_bytes[(width*i + j)*4 + 1] = image[(width*(height - i - 1) + j)*4 + 1];
+            image_bytes[(width*i + j)*4 + 2] = image[(width*(height - i - 1)  + j)*4 + 2];
+            image_bytes[(width*i + j)*4 + 3] = image[(width*(height - i - 1)  + j)*4 + 3];
+        }
+    }
+
+    lua_pushlstring(L, (const char*) image_bytes, width * height * 4);
+
+    delete[] image_bytes;
+    return 1;
+}
+
 static int get_image_data(lua_State * L) {
   int top = lua_gettop(L) + 5;
 
   read_and_validate_buffer_info(L, 1);
+  int32_t width = luaL_checknumber(L, 2);
+  int32_t height = luaL_checknumber(L, 3);
+  printf("get_image_data: Width and height of image: %d %d ", width, height);
 
-  lua_pushlstring(L, (const char*) buffer_info.bytes, buffer_info.src_size);
+  uint8_t* image_bytes = new uint8_t[width * height * 4]; // Cut part of image and send to lua to save it to png file
+  for(size_t i =  0;i < height;i++)
+  {
+    for(size_t j = 0; j < width;j++)
+    {
+        image_bytes[(width*i + j)*4] = buffer_info.bytes[xytoi(j, i)];
+        image_bytes[(width*i + j)*4 + 1] = buffer_info.bytes[xytoi(j, i) + 1];
+        image_bytes[(width*i + j)*4 + 2] = buffer_info.bytes[xytoi(j, i) + 2];
+        image_bytes[(width*i + j)*4 + 3] = buffer_info.bytes[xytoi(j, i) + 3];
+    }
+  }
+
+  //lua_pushlstring(L, (const char*) buffer_info.bytes, buffer_info.src_size);
+  lua_pushlstring(L, (const char*) image_bytes, width * height * 4);
+
+  delete[] image_bytes;
   // assert(top == lua_gettop(L));
   return 1;
 }
@@ -2660,6 +2702,10 @@ const luaL_reg Module_methods[] = {
   {
     "set_texture",
     set_texture
+  },
+   {
+    "reverse_image",
+    reverse_image
   },
   {
     "get_image_data",

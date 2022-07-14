@@ -2,6 +2,7 @@
 /build
 /exported_map
 image_data
+image.png
 debug.keystore
 debug.keystore.pass.txt
 .externalToolBuilders

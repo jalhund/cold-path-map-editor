@@ -270,27 +270,36 @@ function on_message(self, message_id, message, sender)
 	elseif message_id == hash("late_init") then
 		refresh_texture(self)
     elseif message_id == hash("set_size") then
+        print("Set size: ", message.size)
         image_data.size = message.size
 	elseif message_id == hash("save_to_file") then
-		local file = io.open(IMAGE_DATA_PATH.."image_data", "wb")
+		local file = io.open(IMAGE_DATA_PATH.."image.png", "wb")
 
-		local bytes = drawpixels.get_image_data(self.buffer_info)
+		local orig_bytes = drawpixels.get_image_data(self.buffer_info, image_data.size.x, image_data.size.y)
+        local bytes = drawpixels.reverse_image(orig_bytes, image_data.size.x, image_data.size.y)
 
 		if file and bytes then
-			file:write(bytes)
+            print("Encode png: ", image_data.size.x, image_data.size.y, #bytes)
+            local png_data = png.encode_rgba(bytes, image_data.size.x, image_data.size.y)
+			file:write(png_data)
+            file:flush()
 			file:close()
 		else
 			print("ERROR: load_from_file")
 		end
 		refresh_texture(self)
 	elseif message_id == hash("load_from_file") then
-		local file = io.open(IMAGE_DATA_PATH.."image_data", "rb")
+		local file = io.open(IMAGE_DATA_PATH.."image.png", "rb")
 
 		if file then
 			local data = file:read("*a")
-			drawpixels.set_texture(self.buffer_info, data, 4096, 4096, false, false)
+            local png = image.load(data, true)
+            --pprint("png info: ", png)
+		    local my_buffer = png.buffer
+            my_buffer = drawpixels.reverse_image(my_buffer, png.width, png.height)
+			drawpixels.set_texture(self.buffer_info, my_buffer, png.width, png.height, false, false)
             image_data = {
-	            size = vmath.vector3(4096, 4096, 0)
+	            size = vmath.vector3(png.width, png.height, 0)
             }
 			file:close()
 		else
