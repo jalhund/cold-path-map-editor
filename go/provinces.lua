@@ -2,7 +2,7 @@ local M = {}
 
 local inspect = require "scripts.inspect"
 -- To convert custom maps to in-game format
-local GENERATE_DATA_FOR_IN_GAME_MAP = true
+local GENERATE_DATA_FOR_IN_GAME_MAP = false
 
 M.provinces = {}
 M.provinces_data = {}
