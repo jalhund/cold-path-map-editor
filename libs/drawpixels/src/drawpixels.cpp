@@ -1800,24 +1800,39 @@ static int set_texture(lua_State * L) {
 }
 
 static int reverse_image(lua_State *L) {
-    char *image = (char * ) luaL_checkstring(L, 1);
+    size_t str_len;
+    char *image = (char * ) luaL_checklstring(L, 1, &str_len);
     int32_t width = luaL_checknumber(L, 2);
     int32_t height = luaL_checknumber(L, 3);
 
-    uint8_t* image_bytes = new uint8_t[width * height * 4];
+    if (width <= 0 || height <= 0) {
+        lua_pushlstring(L, "", 0);
+        return 1;
+    }
 
-    for(size_t i =  0;i < height;i++)
+    int channels = (int)(str_len / ((size_t)width * height));
+    if (channels < 3 || channels > 4 || str_len != (size_t)width * height * channels) {
+        luaL_error(L, "reverse_image: buffer size %d does not match dimensions %dx%d", (int)str_len, width, height);
+        return 0;
+    }
+
+    size_t total = (size_t)width * height * channels;
+    uint8_t* image_bytes = new uint8_t[total];
+
+    for(size_t i = 0; i < (size_t)height; i++)
+    {
+        for(size_t j = 0; j < (size_t)width; j++)
         {
-        for(size_t j = 0; j < width;j++)
-        {
-            image_bytes[(width*i + j)*4] = image[(width*(height - i - 1) + j)*4];
-            image_bytes[(width*i + j)*4 + 1] = image[(width*(height - i - 1) + j)*4 + 1];
-            image_bytes[(width*i + j)*4 + 2] = image[(width*(height - i - 1)  + j)*4 + 2];
-            image_bytes[(width*i + j)*4 + 3] = image[(width*(height - i - 1)  + j)*4 + 3];
+            size_t dst = (width * i + j) * channels;
+            size_t src = (width * (height - i - 1) + j) * channels;
+            for(int c = 0; c < channels; c++)
+            {
+                image_bytes[dst + c] = image[src + c];
+            }
         }
     }
 
-    lua_pushlstring(L, (const char*) image_bytes, width * height * 4);
+    lua_pushlstring(L, (const char*) image_bytes, total);
 
     delete[] image_bytes;
     return 1;

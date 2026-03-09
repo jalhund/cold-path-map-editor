@@ -94,6 +94,9 @@ function M.on_input(self, action_id, action)
 	if action_id == hash("touch") and action.released then
 		click_for_select = true
 	end
+	if action_id == hash("right_click") and action.released then
+		msg.post("image:/go#image", "pipette_pick", { action = action} )
+	end
 end
 
 return M
