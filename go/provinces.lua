@@ -8,7 +8,6 @@ M.provinces = {}
 M.provinces_data = {}
 
 local check_click = require "scripts.check_click"
-local positions_in_atlas = require "go.positions_in_atlas"
 
 local function save_table_to_file(file_name, t)
     local file = io.open(file_name, "w")
@@ -61,43 +60,54 @@ function M.init(self, map_data)
 end
 
 function M.late_init(self, map_data)
-	local file
-	local data
-	header = {
-		width = 4096,
-		height = 4096,
-		type = resource.TEXTURE_TYPE_2D,
-		format = resource.TEXTURE_FORMAT_LUMINANCE,
-		num_mip_maps = 1
-	}
-
-	local used = {
-		[124] = 0,
-		[252] = 0,
-		[508] = 0,
-		[1020] = 0,
-		[2044] = 0
-	}
-
-	local buffers = {
-		[124] = buffer.create(4096*4096, { {name=hash("luminance"), type=buffer.VALUE_TYPE_UINT8, count=1} } ),
-		[252] = buffer.create(4096*4096, { {name=hash("luminance"), type=buffer.VALUE_TYPE_UINT8, count=1} } ),
-		[508] = buffer.create(4096*4096, { {name=hash("luminance"), type=buffer.VALUE_TYPE_UINT8, count=1} } ),
-		[1020] = buffer.create(4096*4096, { {name=hash("luminance"), type=buffer.VALUE_TYPE_UINT8, count=1} } ),
-		[2044] = buffer.create(4096*4096, { {name=hash("luminance"), type=buffer.VALUE_TYPE_UINT8, count=1} } )
-	}
-
-	local resource_path
 	for i = 1, map_data.num_of_provinces do
-		local size = M.provinces_data[i].size[1]
-		used[size] = used[size] + 1
-		drawpixels.get_file_data(buffers[size], IMAGE_DATA_PATH.."exported_map/blurred_data/"..i,
-			 M.provinces_data[i].size[1], M.provinces_data[i].size[2], size, used[size])
+		local province_width = M.provinces_data[i].size[1]
+		local province_height = M.provinces_data[i].size[2]
 
-		sprite.play_flipbook(M.provinces[i], tostring(positions_in_atlas[size][used[size]]))
-		go.set(msg.url(nil, M.provinces[i],"sprite"), "image", self["atlas_"..size])
-		resource_path = go.get(msg.url(nil, M.provinces[i],"sprite"), "texture0")
-		resource.set_texture(resource_path, header, buffers[size])
+		local buf = buffer.create(province_width * province_height,
+			{ { name = hash("luminance"), type = buffer.VALUE_TYPE_UINT8, count = 1 } })
+		drawpixels.decompress_lzs_data(buf,
+			IMAGE_DATA_PATH .. "exported_map/blurred_data/" .. i,
+			province_width, province_height)
+
+		local texture_path = "/dynamic_province_texture_" .. i .. ".texturec"
+		local texture_id = resource.create_texture(texture_path, {
+			width = province_width,
+			height = province_height,
+			type = resource.TEXTURE_TYPE_2D,
+			format = resource.TEXTURE_FORMAT_LUMINANCE,
+			num_mip_maps = 1
+		})
+		resource.set_texture(texture_id, {
+			width = province_width,
+			height = province_height,
+			x = 0, y = 0,
+			type = resource.TEXTURE_TYPE_2D,
+			format = resource.TEXTURE_FORMAT_LUMINANCE,
+			num_mip_maps = 1
+		}, buf)
+
+		local atlas_id = resource.create_atlas(
+			"/dynamic_province_atlas_" .. i .. ".texturesetc", {
+			texture = texture_id,
+			animations = { {
+				id = "province_" .. i,
+				width = province_width,
+				height = province_height,
+				frame_start = 1, frame_end = 2,
+			} },
+			geometries = { {
+				width = province_width,
+				height = province_height,
+				pivot_x = 0.5, pivot_y = 0.5,
+				vertices  = { 0, province_height, 0, 0, province_width, 0, province_width, province_height },
+				uvs       = { 0, province_height, 0, 0, province_width, 0, province_width, province_height },
+				indices   = { 0, 1, 2, 0, 2, 3 }
+			} }
+		})
+
+		go.set(msg.url(nil, M.provinces[i], "sprite"), "image", atlas_id)
+		sprite.play_flipbook(M.provinces[i], "province_" .. i)
 	end
 end
 

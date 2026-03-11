@@ -1917,28 +1917,7 @@ static void replace_color(Color c1, Color c2)
   }
 }
 
-// 124 instead 128 because there is extrude borders
-static int used_124, used_252, used_508, used_1020, used_2044;
-static int max_124 = 1024, max_252 = 256, max_508 = 64, max_1020 = 16, max_2044 = 4;
-
-static int get_size_for_texture(int size_x, int size_y) {
-  if (size_x <= 124 && size_y <= 124 && used_124 < max_124)
-    return 124;
-  if (size_x <= 252 && size_y <= 252 && used_252 < max_252)
-    return 252;
-  if (size_x <= 508 && size_y <= 508 && used_508 < max_508)
-    return 508;
-  if (size_x <= 1020 && size_y <= 1020 && used_1020 < max_1020)
-    return 1020;
-  if (size_x <= 2044 && size_y <= 2044 && used_2044 < max_2044)
-    return 2044;
-  printf("Province data: %dx%d\n", size_x, size_y);
-  printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
-    used_508, used_1020, used_2044);
-  printf("ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044\n");
-  fflush(stdout);
-  return 0;
-}
+static int total_exported_pixels = 0;
 
 static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_y) {
   uint8_t * blurred_image = new uint8_t[buffer_info.width * buffer_info.height];
@@ -2097,22 +2076,13 @@ static int export_province(Color & color, int n, char * file_path, bool generate
   std::string num_string = std::to_string(n);
   const char* num = num_string.c_str();
 
-  // int output_width = max_x - min_x + 1;
-  // int output_height = max_y - min_y + 1;
+  int output_width = max_x - min_x + 1;
+  int output_height = max_y - min_y + 1;
 
-  int texture_size = get_size_for_texture(max_x - min_x + 1, max_y - min_y + 1);
-  if (texture_size == 124)
-    used_124++;
-  if (texture_size == 252)
-    used_252++;
-  if (texture_size == 508)
-    used_508++;
-  if (texture_size == 1020)
-    used_1020++;
-  if (texture_size == 2044)
-    used_2044++;
-  if (texture_size == 0)
+  if (output_width > 2044 || output_height > 2044)
   {
+  	printf("ERROR! Province too large: %dx%d (max 2044x2044)\n", output_width, output_height);
+  	fflush(stdout);
   	Color white_color;
   	white_color.r = 255;
   	white_color.g = 255;
@@ -2123,39 +2093,23 @@ static int export_province(Color & color, int n, char * file_path, bool generate
   	return 2;
   }
 
-  uint8_t * output_generated_data = new uint8_t[texture_size * texture_size];
-  uint8_t * output_blurred_data = new uint8_t[texture_size * texture_size];
+  int output_size = output_width * output_height;
+  total_exported_pixels += output_size;
+  uint8_t * output_generated_data = new uint8_t[output_size];
+  uint8_t * output_blurred_data = new uint8_t[output_size];
 
-  for (int i = 0; i < texture_size * texture_size; ++i) {
-    output_generated_data[i] = 0;
-  }
+  memset(output_generated_data, 0, output_size);
+  memset(output_blurred_data, 0, output_size);
 
-  for (int i = 0; i < texture_size * texture_size; ++i) {
-    output_blurred_data[i] = 0;
-  }
-
-  int ki = (texture_size - max_y + min_y - 1) / 2;
-  int kj = (texture_size - max_x + min_x - 1) / 2;
+  printf("Min x, min y: %d, %d, %d, %d, %dx%d ", min_x, max_x, min_y, max_y, output_width, output_height);
 
   for (int i = min_y; i <= max_y; ++i) {
     for (int j = min_x; j <= max_x; ++j) {
-      output_generated_data[ki * texture_size + kj] = bytes[i * buffer_info.width + j];
-      ++kj;
+      int ki = i - min_y;
+      int kj = j - min_x;
+      output_generated_data[ki * output_width + kj] = bytes[i * buffer_info.width + j];
+      output_blurred_data[ki * output_width + kj] = blurred_image[i * buffer_info.width + j];
     }
-    ++ki;
-    kj = (texture_size - max_x + min_x - 1) / 2;
-  }
-  ki = (texture_size - max_y + min_y - 1) / 2;
-  kj = (texture_size - max_x + min_x - 1) / 2;
-  // Min x, min y: 99, 316, 398, 589, 500, 141, 154
-  printf("Min x, min y: %d, %d, %d, %d, %d, %d, %d ", min_x, max_x, min_y, max_y, texture_size, ki, kj);
-  for (int i = min_y; i <= max_y; ++i) {
-    for (int j = min_x; j <= max_x; ++j) {
-      output_blurred_data[ki * texture_size + kj] = blurred_image[i * buffer_info.width + j];
-      ++kj;
-    }
-    ++ki;
-    kj = (texture_size - max_x + min_x - 1) / 2;
   }
 
   // Export data for perfect click tracking
@@ -2189,7 +2143,7 @@ static int export_province(Color & color, int n, char * file_path, bool generate
   	}
   }
   else
-  	fwrite(output_generated_data, 1, texture_size * texture_size, fp);
+  	fwrite(output_generated_data, 1, output_size, fp);
 
   fclose(fp);
 
@@ -2210,7 +2164,7 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     return 0;
   }
 
-  fwrite(output_blurred_data, 1, texture_size * texture_size, fp);
+  fwrite(output_blurred_data, 1, output_size, fp);
 
   fclose(fp);
 
@@ -2234,12 +2188,12 @@ static int export_province(Color & color, int n, char * file_path, bool generate
 
   bool is_water = color.b >= 225;
 
-  fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d],\"water\":%s}", texture_size, texture_size,
-    min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2, is_water ? "true" : "false");
-  printf("Set position: %d, %d, %d, %d\n", min_x, max_x, min_x + (max_x - min_x + 1) / 2, min_y + (max_y - min_y + 1) / 2);
+  fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d],\"water\":%s}", output_width, output_height,
+    min_x + output_width / 2, min_y + output_height / 2, is_water ? "true" : "false");
+  printf("Set position: %d, %d, %d, %d\n", min_x, max_x, min_x + output_width / 2, min_y + output_height / 2);
   fclose(fp);
 
-  printf("Export province size: %d, %d, %d\n", max_x - min_x + 1, max_y - min_y + 1, texture_size);
+  printf("Export province size: %dx%d\n", output_width, output_height);
 
   if (generate_adjacency) {
     uint8_t * outline_bytes = new uint8_t[buffer_info.width * buffer_info.height];
@@ -2403,7 +2357,7 @@ static int handle_image(lua_State * L) {
     }
   }
 
-  used_124 = used_252 = used_508 = used_1020 = used_2044 = 0;
+  total_exported_pixels = 0;
   export_data.num_of_provinces = export_data.colors.Size();
 
   lua_pushnumber(L, export_data.colors.Size());
@@ -2430,8 +2384,7 @@ static int export_image(lua_State * L) {
 }
 
 static int finish_export(lua_State * L) {
-  printf("Textures used:\n124x124:   %d\n252x252:   %d\n508x508:   %d\n1020x1020: %d\n2044x2044: %d\n", used_124, used_252,
-    used_508, used_1020, used_2044);
+  printf("Total exported pixels: %d (%.1f Mpx)\n", total_exported_pixels, total_exported_pixels / 1000000.0);
 
  // assert(top == lua_gettop(L));
   if (export_data.generate_adjacency) {
@@ -2458,6 +2411,71 @@ static int finish_export(lua_State * L) {
     g_MyCallbackInfo = 0;
 
   return 0;
+}
+
+static int decompress_lzs_data(lua_State * L) {
+  int top = lua_gettop(L);
+
+  dmScript::LuaHBuffer * lua_buffer = dmScript::CheckBuffer(L, 1);
+  dmBuffer::HBuffer buffer = lua_buffer -> m_Buffer;
+  if (!dmBuffer::IsBufferValid(buffer)) {
+    luaL_error(L, "Buffer is invalid");
+  }
+
+  uint8_t * buffer_bytes;
+  uint32_t buffer_size;
+
+  dmBuffer::Result r_get_in_bytes = dmBuffer::GetBytes(buffer, (void ** ) & buffer_bytes, & buffer_size);
+  if (r_get_in_bytes != dmBuffer::RESULT_OK) {
+    luaL_error(L, "Buffer is invalid");
+  }
+
+  char * file_name = (char * ) luaL_checkstring(L, 2);
+  int width = luaL_checknumber(L, 3);
+  int height = luaL_checknumber(L, 4);
+
+  FILE * fp;
+  if ((fp = fopen(file_name, "rb")) == NULL) {
+    printf("File open error: %s\n", file_name);
+    lua_pushboolean(L, false);
+    return 1;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  long fsize = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+
+  uint8_t *compressed_bytes = (uint8_t*)malloc(fsize);
+  fread(compressed_bytes, 1, fsize, fp);
+  fclose(fp);
+
+  uint8_t * decompressed_bytes = new uint8_t[width * height];
+  int decompressed_size = lzs_decompress(decompressed_bytes, width * height, compressed_bytes, fsize);
+  free(compressed_bytes);
+
+  if (decompressed_size <= 0) {
+    printf("LZS decompression failed\n");
+    delete[] decompressed_bytes;
+    lua_pushboolean(L, false);
+    return 1;
+  }
+
+  uint8_t *stream_data = 0x0;
+  uint32_t stream_count = 0;
+  uint32_t stream_components = 0;
+  uint32_t stream_stride = 0;
+  dmBuffer::Result stream_result = dmBuffer::GetStream(buffer, dmHashString64("luminance"), (void**)&stream_data, &stream_count, &stream_components, &stream_stride);
+
+  if (stream_result == dmBuffer::RESULT_OK && stream_data) {
+    uint32_t copy_size = ((uint32_t)(width * height) < stream_count) ? (uint32_t)(width * height) : stream_count;
+    memcpy(stream_data, decompressed_bytes, copy_size);
+  }
+
+  delete[] decompressed_bytes;
+  lua_pushboolean(L, true);
+
+  assert(top + 1 == lua_gettop(L));
+  return 1;
 }
 
 static int get_file_data(lua_State * L) {
@@ -2741,6 +2759,10 @@ const luaL_reg Module_methods[] = {
   {
     "get_file_data",
     get_file_data
+  },
+  {
+    "decompress_lzs_data",
+    decompress_lzs_data
   },
   {
     "register_progress_callback",
