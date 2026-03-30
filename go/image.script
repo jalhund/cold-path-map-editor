@@ -118,7 +118,12 @@ end
 local HASH_CURSOR = hash("cursor")
 local HASH_SCROLL = hash("scroll")
 
-local function finish_export(n, water_data)
+local function should_log_export_step(i, n)
+	return i == 1 or i % 100 == 0 or i >= n - 5
+end
+
+local function finalize_export_metadata(n, water_provinces)
+	debug_log("finish_export:start", "provinces", n)
 	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
 	local map_id = lume.uuid()
 
@@ -175,7 +180,7 @@ local function finish_export(n, water_data)
 		}
 		local province_for_player = true
 		for i = 1, n do
-			if string.byte(water_data, i) == 1 then
+			if water_provinces[i] then
 				game_data.provinces[i] = {
 					water = true
 				}
@@ -194,11 +199,13 @@ local function finish_export(n, water_data)
 		end
 		file:write(json.encode(game_data))
 		file:close()
+		debug_log("finish_export:scenario_saved", "provinces", n)
 	else
 		print("error creating file: scenario.json")
 	end
 
 	-- Validate adjacency list
+	debug_log("finish_export:adjacency_validation:start")
 	file = io.open(IMAGE_DATA_PATH.."exported_map/adjacency.dat", "r")
 	if file then
 		local adjacency_list = {}
@@ -242,24 +249,75 @@ local function finish_export(n, water_data)
 			file:write("\n")
 		end
 		file:close()
+		debug_log("finish_export:adjacency_validation:done", "rows", #adjacency_list)
 	else
 		print("error validating file: adjacency.dat")
 	end
+end
 
-    -- Compress files
-    for i = 1, n do
-        lzs.compress(IMAGE_DATA_PATH.."exported_map/blurred_data/" .. i)
-        if GENERATED_DATA_COMPRESS_TO_IN_GAME then
+local function compress_exported_files(n, on_done)
+	local i = 1
+	debug_log("finish_export:compression:start", "provinces", n)
+	msg.post("map_creator:/map_creator#map_creator", "compression_progress", {
+		current = 0,
+		total = n
+	})
+
+	timer.delay(0.01, true, function(_, handle, _)
+		if i > n then
+			debug_log("finish_export:done")
+			msg.post("map_creator:/map_creator#map_creator", "finish_export")
+			timer.cancel(handle)
+			if on_done then
+				on_done()
+			end
+			return
+		end
+
+		if should_log_export_step(i, n) then
+			debug_log("finish_export:compression:file:start", i)
+		end
+
+		local ok = lzs.compress(IMAGE_DATA_PATH.."exported_map/blurred_data/" .. i)
+		if not ok then
+			debug_log("finish_export:compression:file:failed", i, "kind", "blurred")
+			msg.post("map_creator:/map_creator#map_creator", "compression_failed", {
+				file = i,
+				kind = "blurred"
+			})
+			timer.cancel(handle)
+			return
+		end
+
+		if GENERATED_DATA_COMPRESS_TO_IN_GAME then
 			local file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "r")
 			local data = file:read("*a")
 			file:close()
 			file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "w")
 			file:write(zlib.deflate(data))
 			file:close()
-        else
-			lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
+		else
+			ok = lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
+			if not ok then
+				debug_log("finish_export:compression:file:failed", i, "kind", "generated")
+				msg.post("map_creator:/map_creator#map_creator", "compression_failed", {
+					file = i,
+					kind = "generated"
+				})
+				timer.cancel(handle)
+				return
+			end
 		end
-    end
+
+		msg.post("map_creator:/map_creator#map_creator", "compression_progress", {
+			current = i,
+			total = n
+		})
+		if should_log_export_step(i, n) then
+			debug_log("finish_export:compression:file:done", i)
+		end
+		i = i + 1
+	end)
 end
 
 function on_message(self, message_id, message, sender)
@@ -378,10 +436,7 @@ function on_message(self, message_id, message, sender)
 			end
 		end
 
-		local water_data = ""
-		for i = 1, 4096 do
-			water_data = water_data.."0"
-		end
+		local water_data = {}
 
 		-- Handle images and get number of provinces
 		local n = drawpixels.handle_image(self.buffer_info, IMAGE_DATA_PATH, true)
@@ -390,12 +445,21 @@ function on_message(self, message_id, message, sender)
 		self.error_code = 0
 		timer.delay(0.01, true, function(self, handle, _)
 			if self.i == n then
-				msg.post("map_creator:/map_creator#map_creator", "finish_export")
+				debug_log("export_map:native_finish:start", "provinces", n)
 				drawpixels.finish_export()
-				finish_export(n, water_data)
+				debug_log("export_map:native_finish:done")
+				finalize_export_metadata(n, water_data)
+				compress_exported_files(n)
 				timer.cancel(handle)
 			else
-				self.error_code = drawpixels.export_image(self.i, water_data)
+				if should_log_export_step(self.i + 1, n) then
+					debug_log("export_map:province:start", self.i + 1, "of", n)
+				end
+				local error_code, is_water = drawpixels.export_image(self.i)
+				if should_log_export_step(self.i + 1, n) then
+					debug_log("export_map:province:done", self.i + 1, "of", n, "error", error_code, "water", is_water)
+				end
+				self.error_code = error_code
 				if self.error_code ~= 0 then
 					msg.post("map_creator:/map_creator#map_creator", "error_code", {
 						code = self.error_code
@@ -403,6 +467,8 @@ function on_message(self, message_id, message, sender)
 					msg.post("map_creator:/map_creator#map_creator", "finish_export")
 					timer.cancel(handle)
 					refresh_texture(self)
+				else
+					water_data[self.i + 1] = is_water
 				end
 				self.i = self.i + 1
 			end

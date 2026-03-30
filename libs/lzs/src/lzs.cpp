@@ -10,7 +10,7 @@
 
 static int compress(lua_State* L)
 {
-    char* file_path = (char*)luaL_checkstring(L, 1);
+    const char* file_path = luaL_checkstring(L, 1);
     
     FILE * fp;
 
@@ -24,19 +24,41 @@ static int compress(lua_State* L)
     long fsize = ftell(fp);
     fseek(fp, 0, SEEK_SET);  /* same as rewind(f); */
 
-    uint8_t *in_bytes = (uint8_t*)malloc(fsize);
-    fread(in_bytes, 1, fsize, fp);
+    if (fsize < 0) {
+        fclose(fp);
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    size_t input_size = (size_t)fsize;
+    size_t max_output_size = LZS_COMPRESSED_MAX(input_size);
+
+    uint8_t *in_bytes = (uint8_t*)malloc(input_size);
+    uint8_t *out_bytes = (uint8_t*)malloc(max_output_size);
+
+    if ((input_size && !in_bytes) || !out_bytes) {
+        fclose(fp);
+        free(in_bytes);
+        free(out_bytes);
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    if (input_size) {
+        fread(in_bytes, 1, input_size, fp);
+    }
     
-    uint8_t *out_bytes = (uint8_t*)malloc(fsize);
-  
-    long c = lzs_compress(out_bytes, fsize, in_bytes, fsize);
+    size_t c = lzs_compress(out_bytes, max_output_size, in_bytes, input_size);
 
     fclose(fp);
     
     if ((fp = fopen(file_path, "wb")) == NULL) {
         printf("File open error");
+        free(in_bytes);
+        free(out_bytes);
         // assert(top == lua_gettop(L));
-        return 0;
+        lua_pushboolean(L, 0);
+        return 1;
     }
 
     fwrite(out_bytes, 1, c,fp);
@@ -45,7 +67,7 @@ static int compress(lua_State* L)
     free(in_bytes);
     free(out_bytes);
 
-    lua_pushnumber(L, 1);
+    lua_pushboolean(L, 1);
     return 1;
 }
 

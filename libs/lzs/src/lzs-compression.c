@@ -224,8 +224,6 @@ size_t lzs_compress(uint8_t * a_pOutData, size_t a_outBufferSize, const uint8_t 
     SimpleCompressState_t state;
 
 
-#if 0
-    // TODO: Do initialisation of hash tables for consistency.
     for (temp16 = 0; temp16 < ARRAY_ENTRIES(hashTable); temp16++)
     {
         hashTable[temp16] = (uint16_t)-1;
@@ -240,7 +238,6 @@ size_t lzs_compress(uint8_t * a_pOutData, size_t a_outBufferSize, const uint8_t 
     {
         historyHash[temp16] = (uint16_t)-1;
     }
-#endif
 
     historyLen = 0;
     bitFieldQueue = 0;
@@ -388,11 +385,18 @@ size_t lzs_compress(uint8_t * a_pOutData, size_t a_outBufferSize, const uint8_t 
         // Update inPtr, inRemaining and hash tables accordingly.
         for (temp8 = 0; temp8 < length; temp8++)
         {
-            inputHash = inputs_hash(*inPtr, *(inPtr + 1));
-            inPtr++;
+            if ((size_t)temp8 + 1u < inRemaining)
+            {
+                inputHash = inputs_hash(*inPtr, *(inPtr + 1));
+                historyHash[historyLatestIdx] = hashTable[inputHash];
+                hashTable[inputHash] = historyLatestIdx;
+            }
+            else
+            {
+                historyHash[historyLatestIdx] = (uint16_t)-1;
+            }
 
-            historyHash[historyLatestIdx] = hashTable[inputHash];
-            hashTable[inputHash] = historyLatestIdx;
+            inPtr++;
             historyLatestIdx = lzs_idx_inc_wrap(historyLatestIdx, 1u, ARRAY_ENTRIES(historyHash));
         }
 

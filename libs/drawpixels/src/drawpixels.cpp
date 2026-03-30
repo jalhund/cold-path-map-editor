@@ -1680,6 +1680,11 @@ static int register_progress_callback(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 0);
 
+    if (g_MyCallbackInfo) {
+      dmScript::DestroyCallback(g_MyCallbackInfo);
+      g_MyCallbackInfo = 0;
+    }
+
     g_MyCallbackInfo = dmScript::CreateCallback(L, 1);
 
     return 0;
@@ -2206,7 +2211,7 @@ static int export_province(Color & color, int n, char * file_path, bool generate
       for (int j = min_x; j < max_x + 1; ++j) {
         // If near different color
         // printf("Find near different color %d %d \n", i, j);
-        if (i > 0 && j > 0 && bytes[i * buffer_info.width + j] && (
+        if (i > 0 && j > 0 && i < buffer_info.height - 1 && j < buffer_info.width - 1 && bytes[i * buffer_info.width + j] && (
             !bytes[i * buffer_info.width + j + 1] ||
             !bytes[i * buffer_info.width + j - 1] ||
             !bytes[(i + 1) * buffer_info.width + j] ||
@@ -2240,12 +2245,35 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     if(start_y < 0)
       start_y = 0;
 
-    for (int i = start_y; i <= max_y + r; ++i) {
-      for (int j = start_x; j <= max_x + r; ++j) {
+    int end_x = max_x + r;
+    int end_y = max_y + r;
+
+    if (end_x >= buffer_info.width)
+      end_x = buffer_info.width - 1;
+
+    if (end_y >= buffer_info.height)
+      end_y = buffer_info.height - 1;
+
+    for (int i = start_y; i <= end_y; ++i) {
+      for (int j = start_x; j <= end_x; ++j) {
         // printf("check outline \n");
         if (outline_bytes[i * buffer_info.width + j]) {
-          for (int li = i - r; li <= i + r; ++li) {
-            for (int lj = j - r; lj <= j + r; ++lj) {
+          int near_start_y = i - r;
+          int near_end_y = i + r;
+          int near_start_x = j - r;
+          int near_end_x = j + r;
+
+          if (near_start_y < 0)
+            near_start_y = 0;
+          if (near_start_x < 0)
+            near_start_x = 0;
+          if (near_end_y >= buffer_info.height)
+            near_end_y = buffer_info.height - 1;
+          if (near_end_x >= buffer_info.width)
+            near_end_x = buffer_info.width - 1;
+
+          for (int li = near_start_y; li <= near_end_y; ++li) {
+            for (int lj = near_start_x; lj <= near_end_x; ++lj) {
               // printf("Li, lj: %d %d", li, lj);
               Color c;
               c.r = buffer_info.bytes[xytoi(lj, li)];
@@ -2325,6 +2353,12 @@ static int handle_image(lua_State * L) {
 
   int32_t n = 0; // Num of provinces
 
+  if (export_data.adjacency_list) {
+    delete[] export_data.adjacency_list;
+    export_data.adjacency_list = 0;
+  }
+
+  export_data.colors.SetSize(0);
   export_data.colors.SetCapacity(4096); // Max count of provinces
 
   timer.reset();
@@ -2366,21 +2400,23 @@ static int handle_image(lua_State * L) {
 
 static int export_image(lua_State * L) {
   int i = luaL_checknumber(L, 1);
-  char* water_provinces = (char*)luaL_checkstring(L, 2);
 
   printf("Export: %d", i);
 
   printf("Export provinces: %.2f%%. Generate adjacency: %d\n", (double) i / export_data.num_of_provinces * 100, export_data.generate_adjacency);
   fflush(stdout);
   InvokeCallback(g_MyCallbackInfo,  (double) i / export_data.num_of_provinces * 100);
-  water_provinces[i] = export_province(export_data.colors[i], i, export_data.file_path, 
+  int province_result = export_province(export_data.colors[i], i, export_data.file_path,
     export_data.generate_adjacency, export_data.colors, export_data.adjacency_list,
     export_data.num_of_provinces);
-  if(water_provinces[i] == 2) // 2 is code of error. Not -1 to avoid overflow errors 
+  if(province_result == 2) { // 2 is code of error. Not -1 to avoid overflow errors
   	lua_pushnumber(L, -1);
-  else
+    lua_pushboolean(L, 0);
+  } else {
   	lua_pushnumber(L, 0);
-  return 1;
+    lua_pushboolean(L, province_result != 0);
+  }
+  return 2;
 }
 
 static int finish_export(lua_State * L) {
@@ -2401,6 +2437,7 @@ static int finish_export(lua_State * L) {
     // }
     save_adjacency(export_data.adjacency_list, export_data.colors.Size(), export_data.file_path);
     delete[] export_data.adjacency_list;
+    export_data.adjacency_list = 0;
   }
 
   printf("Done! Elapsed: %f\n", timer.elapsed());

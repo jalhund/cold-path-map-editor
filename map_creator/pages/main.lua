@@ -28,6 +28,11 @@ function M.on_message(self, message_id, message, sender)
 		self.exporting = false
 	elseif message_id == hash("error_code") then
 		gui.set_text(gui.get_node("progress_test"), "Error: "..errors[message.code])
+	elseif message_id == hash("compression_progress") then
+		gui.set_text(gui.get_node("progress_test"), "Compressing export: "..message.current.."/"..message.total)
+	elseif message_id == hash("compression_failed") then
+		self.exporting = false
+		gui.set_text(gui.get_node("progress_test"), "Compression failed: "..message.kind.." "..message.file)
 	end
 end
 
