@@ -5,8 +5,6 @@ local offsetx = 0
 local previous_y = nil
 local previous_x = nil
 
-local GENERATED_DATA_COMPRESS_TO_IN_GAME = false
-
 click_for_select = true
 
 local scaling_min = 0.4
@@ -117,15 +115,103 @@ end
 
 local HASH_CURSOR = hash("cursor")
 local HASH_SCROLL = hash("scroll")
+local PROVINCE_DATA_FILE = "province_data.bin"
+local PROVINCE_DATA_COMPRESSED_FILE = "province_data.bin.deflate"
 
 local function should_log_export_step(i, n)
 	return i == 1 or i % 100 == 0 or i >= n - 5
 end
 
+local function remove_path(path)
+	local attributes, err = lfs.attributes(path)
+	if not attributes then
+		return true
+	end
+
+	if attributes.mode ~= "directory" then
+		local ok, remove_err = os.remove(path)
+		if not ok then
+			return nil, remove_err or err
+		end
+		return true
+	end
+
+	for entry in lfs.dir(path) do
+		if entry ~= "." and entry ~= ".." then
+			local ok, remove_err = remove_path(path .. "/" .. entry)
+			if not ok then
+				return nil, remove_err
+			end
+		end
+	end
+
+	return lfs.rmdir(path)
+end
+
+local function compress_province_data()
+	local raw_path = IMAGE_DATA_PATH.."exported_map/"..PROVINCE_DATA_FILE
+	local compressed_path = IMAGE_DATA_PATH.."exported_map/"..PROVINCE_DATA_COMPRESSED_FILE
+	local zlib_deflate = zlib and zlib.deflate
+
+	if not zlib_deflate then
+		return nil, "zlib.deflate unavailable"
+	end
+
+	debug_log("finish_export:province_data_compression:start")
+
+	local file = io.open(raw_path, "rb")
+	if not file then
+		return nil, "error open file: province_data.bin"
+	end
+
+	local raw_data = file:read("*a")
+	file:close()
+
+	local ok, compressed_data = pcall(zlib_deflate, raw_data)
+	if not ok or not compressed_data then
+		return nil, compressed_data or "zlib.deflate failed"
+	end
+
+	file = io.open(compressed_path, "wb")
+	if not file then
+		return nil, "error create file: province_data.bin.deflate"
+	end
+
+	file:write(compressed_data)
+	file:close()
+
+	local removed, remove_err = os.remove(raw_path)
+	if not removed then
+		os.remove(compressed_path)
+		return nil, remove_err or "error remove raw province_data.bin"
+	end
+
+	debug_log("finish_export:province_data_compression:done", "raw", #raw_data, "compressed", #compressed_data)
+
+	return {
+		file = PROVINCE_DATA_COMPRESSED_FILE,
+		compression = "zlib",
+		uncompressed_size = #raw_data,
+		compressed_size = #compressed_data
+	}
+end
+
 local function finalize_export_metadata(n, water_provinces)
 	debug_log("finish_export:start", "provinces", n)
+	local province_data_info, compression_error = compress_province_data()
+	if not province_data_info then
+		debug_log("finish_export:province_data_compression:failed", compression_error)
+		print("error compress province_data:", compression_error)
+		return nil, -4
+	end
+
 	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
 	local map_id = lume.uuid()
+	local provinces = {}
+
+	for i = 1, n do
+		provinces[i] = drawpixels.get_exported_province_info(i)
+	end
 
 	if file then
 		local t = {
@@ -134,7 +220,12 @@ local function finalize_export_metadata(n, water_provinces)
 			size = {
 				image_data.size.x,
 				image_data.size.y
-			}
+			},
+			province_data_file = province_data_info.file,
+			province_data_compression = province_data_info.compression,
+			province_data_uncompressed_size = province_data_info.uncompressed_size,
+			province_data_compressed_size = province_data_info.compressed_size,
+			provinces = provinces
 		}
 
 		file:write(json.encode(t))
@@ -253,71 +344,8 @@ local function finalize_export_metadata(n, water_provinces)
 	else
 		print("error validating file: adjacency.dat")
 	end
-end
-
-local function compress_exported_files(n, on_done)
-	local i = 1
-	debug_log("finish_export:compression:start", "provinces", n)
-	msg.post("map_creator:/map_creator#map_creator", "compression_progress", {
-		current = 0,
-		total = n
-	})
-
-	timer.delay(0.01, true, function(_, handle, _)
-		if i > n then
-			debug_log("finish_export:done")
-			msg.post("map_creator:/map_creator#map_creator", "finish_export")
-			timer.cancel(handle)
-			if on_done then
-				on_done()
-			end
-			return
-		end
-
-		if should_log_export_step(i, n) then
-			debug_log("finish_export:compression:file:start", i)
-		end
-
-		local ok = lzs.compress(IMAGE_DATA_PATH.."exported_map/blurred_data/" .. i)
-		if not ok then
-			debug_log("finish_export:compression:file:failed", i, "kind", "blurred")
-			msg.post("map_creator:/map_creator#map_creator", "compression_failed", {
-				file = i,
-				kind = "blurred"
-			})
-			timer.cancel(handle)
-			return
-		end
-
-		if GENERATED_DATA_COMPRESS_TO_IN_GAME then
-			local file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "r")
-			local data = file:read("*a")
-			file:close()
-			file = io.open(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i, "w")
-			file:write(zlib.deflate(data))
-			file:close()
-		else
-			ok = lzs.compress(IMAGE_DATA_PATH.."exported_map/generated_data/" .. i)
-			if not ok then
-				debug_log("finish_export:compression:file:failed", i, "kind", "generated")
-				msg.post("map_creator:/map_creator#map_creator", "compression_failed", {
-					file = i,
-					kind = "generated"
-				})
-				timer.cancel(handle)
-				return
-			end
-		end
-
-		msg.post("map_creator:/map_creator#map_creator", "compression_progress", {
-			current = i,
-			total = n
-		})
-		if should_log_export_step(i, n) then
-			debug_log("finish_export:compression:file:done", i)
-		end
-		i = i + 1
-	end)
+	debug_log("finish_export:done")
+	return true
 end
 
 function on_message(self, message_id, message, sender)
@@ -411,29 +439,25 @@ function on_message(self, message_id, message, sender)
 		end
 		refresh_texture(self)
 	elseif message_id == hash("export_map") then
-		local ok, err = lfs.rmdir(IMAGE_DATA_PATH.."exported_map")
+		local export_path = IMAGE_DATA_PATH.."exported_map"
+		local ok, err = remove_path(export_path)
 		if not ok then
 			print("export error: ", err)
+			msg.post("map_creator:/map_creator#map_creator", "error_code", {
+				code = -3
+			})
+			msg.post("map_creator:/map_creator#map_creator", "finish_export")
+			return
 		end
 
-		ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map")
+		ok, err = lfs.mkdir(export_path)
 		if not ok then
 			print("export error: ", err)
-		else
-			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/generated_data")
-			if not ok then
-				print("export error: ", err)
-			end
-
-			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/blurred_data")
-			if not ok then
-				print("export error: ", err)
-			end
-
-			ok, err = lfs.mkdir(IMAGE_DATA_PATH.."exported_map/description")
-			if not ok then
-				print("export error: ", err)
-			end
+			msg.post("map_creator:/map_creator#map_creator", "error_code", {
+				code = -3
+			})
+			msg.post("map_creator:/map_creator#map_creator", "finish_export")
+			return
 		end
 
 		local water_data = {}
@@ -448,8 +472,13 @@ function on_message(self, message_id, message, sender)
 				debug_log("export_map:native_finish:start", "provinces", n)
 				drawpixels.finish_export()
 				debug_log("export_map:native_finish:done")
-				finalize_export_metadata(n, water_data)
-				compress_exported_files(n)
+				local ok, error_code = finalize_export_metadata(n, water_data)
+				if not ok then
+					msg.post("map_creator:/map_creator#map_creator", "error_code", {
+						code = error_code
+					})
+				end
+				msg.post("map_creator:/map_creator#map_creator", "finish_export")
 				timer.cancel(handle)
 			else
 				if should_log_export_step(self.i + 1, n) then

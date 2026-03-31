@@ -21,6 +21,19 @@ struct ImageList {
     dmArray<ImageData> imageData;
 } imageList;
 
+static void store_image_data(const char* id, const uint8_t* data, uint32_t size)
+{
+    ImageData imageData;
+    imageData.id = new char[strlen(id) + 1];
+    strncpy(imageData.id, id, strlen(id) + 1);
+    imageData.size = size;
+    imageData.data = new uint8_t[size];
+    memcpy(imageData.data, data, size);
+
+    imageList.imageCount++;
+    imageList.imageData.Push(imageData);
+}
+
 static int clear(lua_State* L)
 {
 	for(int i = 0;i < imageList.imageCount;++i)
@@ -36,8 +49,8 @@ static int clear(lua_State* L)
 
 static int load_generated_data_from_file(lua_State* L)
 {
-    char* id = (char*)luaL_checkstring(L, 1);
-    char* file_path = (char*)luaL_checkstring(L, 2);
+    const char* id = luaL_checkstring(L, 1);
+    const char* file_path = luaL_checkstring(L, 2);
     int size = lua_tointeger(L, 3);
     
     FILE * fp;
@@ -48,11 +61,7 @@ static int load_generated_data_from_file(lua_State* L)
         return 0;
     }
 
-    ImageData imageData;
-    imageData.id = new char[strlen(id) + 1];
-    strncpy(imageData.id, id, strlen(id) + 1);
-    imageData.size = size;
-    imageData.data = new uint8_t[size];
+    uint8_t* decompressed_data = new uint8_t[size];
 
     fseek(fp, 0, SEEK_END);
     long fsize = ftell(fp);
@@ -61,14 +70,37 @@ static int load_generated_data_from_file(lua_State* L)
     uint8_t *compressed_bytes = (uint8_t*)malloc(fsize);
     fread(compressed_bytes, 1, fsize, fp);
   
-    int c = lzs_decompress(imageData.data, size, compressed_bytes, fsize);
+    int c = lzs_decompress(decompressed_data, size, compressed_bytes, fsize);
     free(compressed_bytes);
     fclose(fp);
 
-    imageList.imageCount++;
-    imageList.imageData.Push(imageData);
+    if (c <= 0) {
+        delete[] decompressed_data;
+        lua_pushboolean(L, 0);
+        return 1;
+    }
 
-    lua_pushnumber(L, 1);
+    store_image_data(id, decompressed_data, size);
+    delete[] decompressed_data;
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int load_generated_data_from_string(lua_State* L)
+{
+    const char* id = luaL_checkstring(L, 1);
+    size_t data_len = 0;
+    const char* data = luaL_checklstring(L, 2, &data_len);
+    int size = lua_tointeger(L, 3);
+
+    if (size < 0 || (size_t)size != data_len) {
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    store_image_data(id, (const uint8_t*)data, (uint32_t)data_len);
+    lua_pushboolean(L, 1);
     return 1;
 }
 
@@ -120,6 +152,7 @@ static const luaL_reg Module_methods[] =
 {
     {"clear", clear},
     {"load_from_file", load_generated_data_from_file},
+    {"load_from_string", load_generated_data_from_string},
     {"init", init},
     {"checkaplha", checkaplha},
     {0, 0}

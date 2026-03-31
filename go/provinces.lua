@@ -8,6 +8,7 @@ M.provinces = {}
 M.provinces_data = {}
 
 local check_click = require "scripts.check_click"
+local province_binary = require "scripts.province_binary"
 
 local function save_table_to_file(file_name, t)
     local file = io.open(file_name, "w")
@@ -19,33 +20,27 @@ local function save_table_to_file(file_name, t)
 end
 
 function M.init(self, map_data)
-	provinces = {}
-	local file
-	local province_info
-	local blurred_data
-	local generated_data
-	local pos
-	local size
-	local data
-	local pos
+	M.provinces = {}
+	M.provinces_data = {}
 	check_click.clear()
+	province_binary.load_all(map_data)
 
     local list_of_water_provinces = {}
     local provinces_positions = {}
-    local provinces_offset = {}
 
 	for i = 1, map_data.num_of_provinces do
-		file = io.open(IMAGE_DATA_PATH.."exported_map/description/"..i, "r")
-		data = file:read("*a")
-		M.provinces_data[i] = json.decode(data)
+		M.provinces_data[i] = map_data.provinces[i]
 		pprint("Province data:", M.provinces_data[i])
-		pos = vmath.vector3(M.provinces_data[i].position[1],
+		local pos = vmath.vector3(M.provinces_data[i].position[1],
 			M.provinces_data[i].position[2], 0)
 		M.provinces[i] = factory.create("/factories#province_factory", pos)
 		go.set(msg.url(nil, M.provinces[i],"sprite"), "material", self.distancefield)
 		print("Add province: ", i)
-		check_click.load_from_file(tostring(i), IMAGE_DATA_PATH.."exported_map/generated_data/"..i, M.provinces_data[i].size[1]
-			* M.provinces_data[i].size[2])
+		local ok = check_click.load_from_string(tostring(i), M.provinces_data[i].generated_data)
+		if not ok then
+			error("Error loading generated province data: " .. i)
+		end
+		M.provinces_data[i].generated_data = nil
 
         if GENERATE_DATA_FOR_IN_GAME_MAP then
             table.insert(list_of_water_provinces, M.provinces_data[i].water)
@@ -66,9 +61,13 @@ function M.late_init(self, map_data)
 
 		local buf = buffer.create(province_width * province_height,
 			{ { name = hash("luminance"), type = buffer.VALUE_TYPE_UINT8, count = 1 } })
-		drawpixels.decompress_lzs_data(buf,
-			IMAGE_DATA_PATH .. "exported_map/blurred_data/" .. i,
+		local ok = drawpixels.set_luminance_data(buf,
+			M.provinces_data[i].blurred_data,
 			province_width, province_height)
+		if not ok then
+			error("Error loading blurred province data: " .. i)
+		end
+		M.provinces_data[i].blurred_data = nil
 
 		local texture_path = "/dynamic_province_texture_" .. i .. ".texturec"
 		local texture_id = resource.create_texture(texture_path, {
@@ -112,7 +111,7 @@ function M.late_init(self, map_data)
 end
 
 function M.get(id)
-	return provinces[id]
+	return M.provinces[id]
 end
 
 return M

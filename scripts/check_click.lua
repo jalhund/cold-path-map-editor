@@ -47,7 +47,11 @@ function M.clear()
 end
 
 function M.load_from_file(i, path, size)
-	checkclick.load_from_file(i, path, size)
+	return checkclick.load_from_file(i, path, size)
+end
+
+function M.load_from_string(i, data)
+	return checkclick.load_from_string(i, data, #data)
 end
 
 function M.init(init_list)

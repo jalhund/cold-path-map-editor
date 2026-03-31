@@ -64,6 +64,16 @@ struct Color {
   int b;
 };
 
+struct ProvinceExportInfo {
+  int width;
+  int height;
+  int position_x;
+  int position_y;
+  uint32_t generated_size;
+  uint32_t blurred_size;
+  bool water;
+};
+
 static float PI_2 = M_PI * 2;
 static bool is_record_point = false;
 static int * points = nullptr;
@@ -1922,6 +1932,15 @@ static void replace_color(Color c1, Color c2)
   }
 }
 
+struct ExportData {
+  char* file_path;
+  bool generate_adjacency;
+  dmArray<Color> colors;
+  dmArray<ProvinceExportInfo> province_infos;
+  int* adjacency_list;
+  int num_of_provinces;
+} export_data;
+
 static int total_exported_pixels = 0;
 
 static uint8_t * blur(uint8_t * bytes, int min_x, int max_x, int min_y, int max_y) {
@@ -2077,9 +2096,6 @@ static int export_province(Color & color, int n, char * file_path, bool generate
 
   // Provinces should be counted from 1
   n = n + 1;
-  // Convert province id to string
-  std::string num_string = std::to_string(n);
-  const char* num = num_string.c_str();
 
   int output_width = max_x - min_x + 1;
   int output_height = max_y - min_y + 1;
@@ -2117,86 +2133,43 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     }
   }
 
-  // Export data for perfect click tracking
-  char* generated_data_file_path = concat(file_path, "exported_map/generated_data/");
-  char* generated_data_file_name = concat(generated_data_file_path, num);
-
-  char* file_mode = "wb";
-  if(EXPORT_TO_PPM)
-  	file_mode = "w";
-
-  if ((fp = fopen(generated_data_file_name, file_mode)) == NULL) {
-    printf("File open error");
-    free(generated_data_file_path);
-    free(generated_data_file_name);
-    delete[] bytes;
-    delete[] blurred_image;
-    delete[] output_generated_data;
-    delete[] output_blurred_data;
-    return 0;
-  }
-
-  if(EXPORT_TO_PPM)
-  {
-  	fprintf(fp, "1");
-  	for (int i = max_y; i >= min_y; --i)
-  	{
-  	  for (int j = min_x; j <= max_x; ++j)
-      {
-        fprintf(fp, "%d", bytes[i * buffer_info.width + j] == 255 ? 1 : 0);
-      }
-  	}
-  }
-  else
-  	fwrite(output_generated_data, 1, output_size, fp);
-
-  fclose(fp);
-
-  // Export blurred image to set texture
-  char* blurred_image_file_path = concat(file_path, "exported_map/blurred_data/");
-  char* blurred_image_file_name = concat(blurred_image_file_path, num);
-
-  if ((fp = fopen(blurred_image_file_name, "wb")) == NULL) {
-    printf("File open error");
-    free(blurred_image_file_path);
-    free(blurred_image_file_name);
-    free(generated_data_file_path);
-    free(generated_data_file_name);
-    delete[] bytes;
-    delete[] blurred_image;
-    delete[] output_generated_data;
-    delete[] output_blurred_data;
-    return 0;
-  }
-
-  fwrite(output_blurred_data, 1, output_size, fp);
-
-  fclose(fp);
-
-  char* description_file_path = concat(file_path, "exported_map/description/");
-  char* description_file_name = concat(description_file_path, num);
-
-  if ((fp = fopen(description_file_name, "wb")) == NULL) {
-    printf("File open error");
-    free(blurred_image_file_path);
-    free(blurred_image_file_name);
-    free(generated_data_file_path);
-    free(generated_data_file_name);
-    free(description_file_path);
-    free(description_file_name);
-    delete[] bytes;
-    delete[] blurred_image;
-    delete[] output_generated_data;
-    delete[] output_blurred_data;
-    return 0;
-  }
-
   bool is_water = color.b >= 225;
+  ProvinceExportInfo province_info;
+  province_info.width = output_width;
+  province_info.height = output_height;
+  province_info.position_x = min_x + output_width / 2;
+  province_info.position_y = min_y + output_height / 2;
+  province_info.generated_size = output_size;
+  province_info.blurred_size = output_size;
+  province_info.water = is_water;
 
-  fprintf(fp, "{\"size\":[%d,%d],\"position\":[%d,%d],\"water\":%s}", output_width, output_height,
-    min_x + output_width / 2, min_y + output_height / 2, is_water ? "true" : "false");
-  printf("Set position: %d, %d, %d, %d\n", min_x, max_x, min_x + output_width / 2, min_y + output_height / 2);
+  char* province_data_file_name = concat(file_path, "exported_map/province_data.bin");
+  if ((fp = fopen(province_data_file_name, "ab")) == NULL) {
+    printf("File open error");
+    free(province_data_file_name);
+    delete[] bytes;
+    delete[] blurred_image;
+    delete[] output_generated_data;
+    delete[] output_blurred_data;
+    return 3;
+  }
+
+  size_t generated_written = fwrite(output_generated_data, 1, output_size, fp);
+  size_t blurred_written = fwrite(output_blurred_data, 1, output_size, fp);
   fclose(fp);
+  free(province_data_file_name);
+
+  if (generated_written != (size_t)output_size || blurred_written != (size_t)output_size) {
+    delete[] bytes;
+    delete[] blurred_image;
+    delete[] output_generated_data;
+    delete[] output_blurred_data;
+    return 3;
+  }
+
+  export_data.province_infos.Push(province_info);
+
+  printf("Set position: %d, %d, %d, %d\n", min_x, max_x, province_info.position_x, province_info.position_y);
 
   printf("Export province size: %dx%d\n", output_width, output_height);
 
@@ -2300,12 +2273,6 @@ static int export_province(Color & color, int n, char * file_path, bool generate
     delete[] outline_bytes;
   }
 
-  free(blurred_image_file_path);
-  free(blurred_image_file_name);
-  free(generated_data_file_path);
-  free(generated_data_file_name);
-  free(description_file_path);
-  free(description_file_name);
   delete[] bytes;
   delete[] blurred_image;
   delete[] output_generated_data;
@@ -2336,14 +2303,6 @@ static void save_adjacency(int * adjacency_list, int size, char * file_path) {
   free(file_name);
 }
 
-struct ExportData {
-  char* file_path;
-  bool generate_adjacency;
-  dmArray<Color> colors;
-  int* adjacency_list;
-  int num_of_provinces;
-} export_data;
-
 Timer timer;
 
 static int handle_image(lua_State * L) {
@@ -2360,6 +2319,8 @@ static int handle_image(lua_State * L) {
 
   export_data.colors.SetSize(0);
   export_data.colors.SetCapacity(4096); // Max count of provinces
+  export_data.province_infos.SetSize(0);
+  export_data.province_infos.SetCapacity(4096);
 
   timer.reset();
 
@@ -2409,8 +2370,8 @@ static int export_image(lua_State * L) {
   int province_result = export_province(export_data.colors[i], i, export_data.file_path,
     export_data.generate_adjacency, export_data.colors, export_data.adjacency_list,
     export_data.num_of_provinces);
-  if(province_result == 2) { // 2 is code of error. Not -1 to avoid overflow errors
-  	lua_pushnumber(L, -1);
+  if(province_result >= 2) {
+    lua_pushnumber(L, province_result == 2 ? -1 : -2);
     lua_pushboolean(L, 0);
   } else {
   	lua_pushnumber(L, 0);
@@ -2448,6 +2409,49 @@ static int finish_export(lua_State * L) {
     g_MyCallbackInfo = 0;
 
   return 0;
+}
+
+static int get_exported_province_info(lua_State * L) {
+  int index = luaL_checknumber(L, 1) - 1;
+
+  if (index < 0 || index >= export_data.province_infos.Size()) {
+    lua_pushnil(L);
+    return 1;
+  }
+
+  ProvinceExportInfo info = export_data.province_infos[index];
+
+  lua_newtable(L);
+
+  lua_pushstring(L, "size");
+  lua_newtable(L);
+  lua_pushinteger(L, info.width);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, info.height);
+  lua_rawseti(L, -2, 2);
+  lua_settable(L, -3);
+
+  lua_pushstring(L, "position");
+  lua_newtable(L);
+  lua_pushinteger(L, info.position_x);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, info.position_y);
+  lua_rawseti(L, -2, 2);
+  lua_settable(L, -3);
+
+  lua_pushstring(L, "water");
+  lua_pushboolean(L, info.water);
+  lua_settable(L, -3);
+
+  lua_pushstring(L, "generated_size");
+  lua_pushinteger(L, info.generated_size);
+  lua_settable(L, -3);
+
+  lua_pushstring(L, "blurred_size");
+  lua_pushinteger(L, info.blurred_size);
+  lua_settable(L, -3);
+
+  return 1;
 }
 
 static int decompress_lzs_data(lua_State * L) {
@@ -2512,6 +2516,111 @@ static int decompress_lzs_data(lua_State * L) {
   lua_pushboolean(L, true);
 
   assert(top + 1 == lua_gettop(L));
+  return 1;
+}
+
+int color_offset_x = 0;
+int color_offset_y = 0;
+int color_offset_z = 128;
+
+static void draw_province_bytes(const uint8_t* bytes, int x, int y, int width, int height, bool is_water) {
+  int c1 = 255;
+  int c2 = 255;
+  int c3 = 255;
+
+  if (is_water) {
+    c1 = 180;
+    c2 = 210;
+    c3 = 236;
+  }
+
+  if (DRAW_PROVINCES_WHEN_LOAD_MAP) {
+    c1 = c1 - color_offset_x;
+    c2 = c2 - color_offset_y;
+
+    color_offset_x = color_offset_x + 8;
+    if (color_offset_x > 240) {
+      color_offset_x = 0;
+      color_offset_y += 8;
+    }
+
+    if (c3 == 255) {
+      c3 = c3 - color_offset_z;
+      if (color_offset_y > 240) {
+        color_offset_y = 0;
+        color_offset_z += 8;
+      }
+    }
+    printf("Generated unique color is: %d %d %d %d\n", c1, c2, color_offset_x, color_offset_y);
+  }
+
+  int start_x = x - width / 2;
+  int start_y = y - height / 2;
+
+  for (int row = 0; row < height; ++row) {
+    for (int col = 0; col < width; ++col) {
+      if (bytes[row * width + col]) {
+        int buffer_index = xytoi(start_x + col, start_y + row);
+        buffer_info.bytes[buffer_index] = c1;
+        buffer_info.bytes[buffer_index + 1] = c2;
+        buffer_info.bytes[buffer_index + 2] = c3;
+        buffer_info.bytes[buffer_index + 3] = 255;
+      }
+    }
+  }
+}
+
+static int set_luminance_data(lua_State * L) {
+  int top = lua_gettop(L);
+
+  dmScript::LuaHBuffer * lua_buffer = dmScript::CheckBuffer(L, 1);
+  dmBuffer::HBuffer buffer = lua_buffer -> m_Buffer;
+  if (!dmBuffer::IsBufferValid(buffer)) {
+    luaL_error(L, "Buffer is invalid");
+  }
+
+  size_t data_len = 0;
+  const char* data = luaL_checklstring(L, 2, &data_len);
+  int width = luaL_checknumber(L, 3);
+  int height = luaL_checknumber(L, 4);
+  uint32_t expected_size = (uint32_t)(width * height);
+
+  uint8_t *stream_data = 0x0;
+  uint32_t stream_count = 0;
+  uint32_t stream_components = 0;
+  uint32_t stream_stride = 0;
+  dmBuffer::Result stream_result = dmBuffer::GetStream(buffer, dmHashString64("luminance"), (void**)&stream_data, &stream_count, &stream_components, &stream_stride);
+
+  if (stream_result != dmBuffer::RESULT_OK || !stream_data || data_len < expected_size) {
+    lua_pushboolean(L, false);
+    return 1;
+  }
+
+  uint32_t copy_size = expected_size < stream_count ? expected_size : stream_count;
+  memcpy(stream_data, data, copy_size);
+
+  lua_pushboolean(L, true);
+  assert(top + 1 == lua_gettop(L));
+  return 1;
+}
+
+static int load_province_data(lua_State * L) {
+  size_t data_len = 0;
+  const char* data = luaL_checklstring(L, 1, &data_len);
+  int x = luaL_checknumber(L, 2);
+  int y = luaL_checknumber(L, 3);
+  int width = luaL_checknumber(L, 4);
+  int height = luaL_checknumber(L, 5);
+  bool is_water = lua_toboolean(L, 6);
+  uint32_t expected_size = (uint32_t)(width * height);
+
+  if (data_len < expected_size) {
+    lua_pushboolean(L, false);
+    return 1;
+  }
+
+  draw_province_bytes((const uint8_t*)data, x, y, width, height, is_water);
+  lua_pushboolean(L, true);
   return 1;
 }
 
@@ -2598,10 +2707,6 @@ static int clear_map(lua_State * L) {
   }
   return 0;
 }
-
-int color_offset_x = 0;
-int color_offset_y = 0;
-int color_offset_z = 128;
 
 static int load_province(lua_State * L) {
   int top = lua_gettop(L) + 4;
@@ -2794,6 +2899,10 @@ const luaL_reg Module_methods[] = {
     finish_export
   },
   {
+    "get_exported_province_info",
+    get_exported_province_info
+  },
+  {
     "get_file_data",
     get_file_data
   },
@@ -2812,6 +2921,14 @@ const luaL_reg Module_methods[] = {
   {
     "load_province",
     load_province
+  },
+  {
+    "set_luminance_data",
+    set_luminance_data
+  },
+  {
+    "load_province_data",
+    load_province_data
   },
 
   {

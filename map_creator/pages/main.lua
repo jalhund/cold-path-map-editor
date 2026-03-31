@@ -1,6 +1,7 @@
 local M = {}
 
 local gooey = require "gooey.gooey"
+local province_binary = require "scripts.province_binary"
 
 local function update_button_menu(button)
 	if button.pressed_now then
@@ -20,7 +21,10 @@ function M.set_callback(callback)
 end
 
 local errors = {
-	[-1] = "ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044"
+	[-1] = "ERROR! No texture found for the province! Try to reduce the number of provinces or do not create textures larger than 2044x2044",
+	[-2] = "ERROR! Failed to write province_data.bin",
+	[-3] = "ERROR! Failed to recreate exported_map",
+	[-4] = "ERROR! Failed to compress province_data.bin"
 }
 
 function M.on_message(self, message_id, message, sender)
@@ -28,11 +32,6 @@ function M.on_message(self, message_id, message, sender)
 		self.exporting = false
 	elseif message_id == hash("error_code") then
 		gui.set_text(gui.get_node("progress_test"), "Error: "..errors[message.code])
-	elseif message_id == hash("compression_progress") then
-		gui.set_text(gui.get_node("progress_test"), "Compressing export: "..message.current.."/"..message.total)
-	elseif message_id == hash("compression_failed") then
-		self.exporting = false
-		gui.set_text(gui.get_node("progress_test"), "Compression failed: "..message.kind.." "..message.file)
 	end
 end
 
@@ -73,17 +72,13 @@ function M.on_input(self, action_id, action)
 	            size = vmath.vector3(map_data.size[1], map_data.size[2], 0)
 	        })
 
-            for i = 1, map_data.num_of_provinces do
-                local f = io.open(IMAGE_DATA_PATH.."exported_map/description/"..i, "r")
-                if not f then
-                    debug_log("Error open file description: ", i)
+            province_binary.for_each(map_data, function(i, province, generated_data)
+                print("Load province: ", i, province.position[1], province.position[2], province.size[1], province.size[2], province.water)
+                local ok = drawpixels.load_province_data(generated_data, province.position[1], province.position[2], province.size[1], province.size[2], province.water)
+                if not ok then
+                    error("Error loading province into map creator: " .. i)
                 end
-                local d = f:read("*a")
-                f:close()
-                d = json.decode(d)
-                print("Load province: ", i, d.position[1], d.position[2], d.size[1], d.water)
-                drawpixels.load_province(IMAGE_DATA_PATH.."exported_map/generated_data/"..i, d.position[1], d.position[2], d.size[1], d.water)
-            end
+            end)
 
 		    msg.post("image:/go#image", "late_init")
 		end
