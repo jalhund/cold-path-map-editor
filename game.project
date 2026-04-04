@@ -55,6 +55,8 @@ scale = 0.01
 [graphics]
 default_texture_mag_filter = nearest
 default_texture_min_filter = nearest
+max_draw_calls = 4096
+max_characters = 32000
 
 [sprite]
 subpixels = 0

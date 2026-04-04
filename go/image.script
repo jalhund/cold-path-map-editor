@@ -117,6 +117,17 @@ local HASH_CURSOR = hash("cursor")
 local HASH_SCROLL = hash("scroll")
 local PROVINCE_DATA_FILE = "province_data.bin"
 local PROVINCE_DATA_COMPRESSED_FILE = "province_data.bin.deflate"
+local PREVIEW_FILE = "preview.png"
+local PREVIEW_HEIGHT = 256
+local PREVIEW_WATER_RGBA = {
+	math.floor(0.71 * 255 + 0.5),
+	math.floor(0.82 * 255 + 0.5),
+	math.floor(0.93 * 255 + 0.5),
+	255
+}
+local PREVIEW_LAND_PIXEL = string.char(255, 255, 255, 255)
+local PREVIEW_WATER_PIXEL = string.char(PREVIEW_WATER_RGBA[1], PREVIEW_WATER_RGBA[2], PREVIEW_WATER_RGBA[3], PREVIEW_WATER_RGBA[4])
+local PREVIEW_TRANSPARENT_PIXEL = string.char(0, 0, 0, 0)
 
 local function should_log_export_step(i, n)
 	return i == 1 or i % 100 == 0 or i >= n - 5
@@ -196,13 +207,101 @@ local function compress_province_data()
 	}
 end
 
-local function finalize_export_metadata(n, water_provinces)
+local function scale_rgba_nearest(bytes, src_width, src_height, dst_width, dst_height)
+	local scaled = {}
+	local index = 1
+
+	for y = 0, dst_height - 1 do
+		local src_y = math.min(src_height - 1, math.floor(y * src_height / dst_height))
+		for x = 0, dst_width - 1 do
+			local src_x = math.min(src_width - 1, math.floor(x * src_width / dst_width))
+			local src_index = (src_y * src_width + src_x) * 4 + 1
+
+			scaled[index] = string.char(
+				string.byte(bytes, src_index),
+				string.byte(bytes, src_index + 1),
+				string.byte(bytes, src_index + 2),
+				string.byte(bytes, src_index + 3)
+			)
+			index = index + 1
+		end
+	end
+
+	return table.concat(scaled)
+end
+
+local function build_preview_rgba(bytes, width, height)
+	local preview = {}
+	local index = 1
+
+	for i = 0, width * height - 1 do
+		local src_index = i * 4 + 1
+		local b = string.byte(bytes, src_index + 2) or 0
+		local a = string.byte(bytes, src_index + 3) or 0
+
+		if a == 0 then
+			preview[index] = PREVIEW_TRANSPARENT_PIXEL
+		elseif b >= 225 then
+			preview[index] = PREVIEW_WATER_PIXEL
+		else
+			preview[index] = PREVIEW_LAND_PIXEL
+		end
+
+		index = index + 1
+	end
+
+	return table.concat(preview)
+end
+
+local function generate_preview_png(self)
+	local src_width = math.max(1, math.floor(image_data.size.x))
+	local src_height = math.max(1, math.floor(image_data.size.y))
+	local dst_height = PREVIEW_HEIGHT
+	local dst_width = math.max(1, math.floor(src_width * dst_height / src_height + 0.5))
+	local preview_path = IMAGE_DATA_PATH.."exported_map/"..PREVIEW_FILE
+
+	local orig_bytes = drawpixels.get_image_data(self.buffer_info, src_width, src_height)
+	local bytes = drawpixels.reverse_image(orig_bytes, src_width, src_height)
+	if not bytes then
+		return nil, "failed to prepare preview image data"
+	end
+
+	local preview_bytes = build_preview_rgba(bytes, src_width, src_height)
+	local scaled_bytes = scale_rgba_nearest(preview_bytes, src_width, src_height, dst_width, dst_height)
+	local png_data = png.encode_rgba(scaled_bytes, dst_width, dst_height)
+	if not png_data then
+		return nil, "failed to encode preview png"
+	end
+
+	local file = io.open(preview_path, "wb")
+	if not file then
+		return nil, "error create file: "..PREVIEW_FILE
+	end
+
+	file:write(png_data)
+	file:close()
+
+	return {
+		file = PREVIEW_FILE,
+		size = {
+			dst_width,
+			dst_height
+		}
+	}
+end
+
+local function finalize_export_metadata(self, n, water_provinces)
 	debug_log("finish_export:start", "provinces", n)
 	local province_data_info, compression_error = compress_province_data()
 	if not province_data_info then
 		debug_log("finish_export:province_data_compression:failed", compression_error)
 		print("error compress province_data:", compression_error)
 		return nil, -4
+	end
+
+	local preview_info, preview_error = generate_preview_png(self)
+	if not preview_info then
+		print("error generate preview:", preview_error)
 	end
 
 	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "w")
@@ -225,6 +324,8 @@ local function finalize_export_metadata(n, water_provinces)
 			province_data_compression = province_data_info.compression,
 			province_data_uncompressed_size = province_data_info.uncompressed_size,
 			province_data_compressed_size = province_data_info.compressed_size,
+			preview_file = preview_info and preview_info.file or nil,
+			preview_size = preview_info and preview_info.size or nil,
 			provinces = provinces
 		}
 
@@ -472,7 +573,7 @@ function on_message(self, message_id, message, sender)
 				debug_log("export_map:native_finish:start", "provinces", n)
 				drawpixels.finish_export()
 				debug_log("export_map:native_finish:done")
-				local ok, error_code = finalize_export_metadata(n, water_data)
+				local ok, error_code = finalize_export_metadata(self, n, water_data)
 				if not ok then
 					msg.post("map_creator:/map_creator#map_creator", "error_code", {
 						code = error_code
