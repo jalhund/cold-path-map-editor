@@ -8,7 +8,7 @@
 #include <string.h> 
 #include "lzs.h"
 
-const static int MAX_IMAGE_COUNT = 1024;
+const static int MAX_IMAGE_COUNT = 2048;
 
 struct ImageData {
     char* id;

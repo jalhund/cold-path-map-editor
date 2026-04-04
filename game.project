@@ -58,13 +58,16 @@ default_texture_min_filter = nearest
 
 [sprite]
 subpixels = 0
-max_count = 1365
+max_count = 4096
 
 [label]
-max_count = 1364
+max_count = 4096
 
 [collection]
-max_instances = 2048
+max_instances = 5000
+
+[resource]
+max_resources = 10000
 
 [native_extension]
 app_manifest = /main/generated.appmanifest
