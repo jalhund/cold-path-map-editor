@@ -20,6 +20,7 @@ function init(self)
 	for k, v in pairs(pages) do
 		v.set_callback(set_page)
 	end
+	pages[current_page].init()
 end
 
 function final(self)

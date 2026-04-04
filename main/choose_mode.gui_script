@@ -1,7 +1,29 @@
 local gooey = require "gooey.gooey"
+local exported_map_format = require "scripts.exported_map_format"
+
+local MAP_EDITOR_TEXT = "Map editor"
+local CONVERT_TEXT = "Convert to new format"
+
+local function set_map_editor_text(text)
+	gui.set_text(gui.get_node("map_editor_text"), text)
+end
+
+local function has_legacy_exported_map()
+	local map_data = exported_map_format.read_map_info()
+	return exported_map_format.is_legacy_format(map_data)
+end
+
+local function refresh_map_editor_button()
+	local map_data = exported_map_format.read_map_info()
+	if exported_map_format.is_new_format(map_data) and exported_map_format.has_legacy_artifacts() then
+		exported_map_format.cleanup_legacy_artifacts()
+	end
+	set_map_editor_text(has_legacy_exported_map() and CONVERT_TEXT or MAP_EDITOR_TEXT)
+end
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
+	refresh_map_editor_button()
 end
 
 function on_input(self, action_id, action)
@@ -10,7 +32,16 @@ function on_input(self, action_id, action)
 		gui.set_enabled(gui.get_node("main"), false)
 	end, update_button_menu)
 	gooey.button("map_editor/outline", action_id, action, function()
-		msg.post("main:/go#main", "load_editor")
-		gui.set_enabled(gui.get_node("main"), false)
+		if has_legacy_exported_map() then
+			set_map_editor_text("Converting...")
+			local ok = exported_map_format.convert_legacy_to_new()
+			refresh_map_editor_button()
+			if not ok then
+				set_map_editor_text(CONVERT_TEXT)
+			end
+		else
+			msg.post("main:/go#main", "load_editor")
+			gui.set_enabled(gui.get_node("main"), false)
+		end
 	end, update_button_menu)
 end
