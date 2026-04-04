@@ -1759,22 +1759,41 @@ static int set_texture(lua_State * L) {
   int top = lua_gettop(L) + 5;
 
   read_and_validate_buffer_info(L, 1);
-  char * str = (char * ) luaL_checkstring(L, 2);
+  size_t str_len = 0;
+  const uint8_t * str = (const uint8_t * ) luaL_checklstring(L, 2, &str_len);
   int32_t width = luaL_checknumber(L, 3);
   int32_t height = luaL_checknumber(L, 4);
   bool normalize = lua_toboolean(L, 5);
   bool reverse = lua_toboolean(L, 6);
 
+  size_t pixel_count = (size_t) width * height;
+  if (pixel_count == 0 || str_len % pixel_count != 0) {
+    luaL_error(L, "set_texture: buffer size %d does not match dimensions %dx%d", (int) str_len, width, height);
+    return 0;
+  }
+
+  int src_channels = (int) (str_len / pixel_count);
+  if (src_channels != 3 && src_channels != 4) {
+    luaL_error(L, "set_texture: unsupported source channel count %d", src_channels);
+    return 0;
+  }
+
   int k;
   printf("Reverse: %d\n", reverse);
   for (int i = 0; i < height; ++i) {
     for (int j = 0; j < width; ++j) {
-      for (int l = 0; l < buffer_info.channels; ++l) {
-        k = i;
-        if(reverse)
-          k = (height - i - 1);
-        buffer_info.bytes[i * buffer_info.width * buffer_info.channels + j * buffer_info.channels + l] =
-          str[k * width * buffer_info.channels + j * buffer_info.channels + l];
+      k = i;
+      if(reverse)
+        k = (height - i - 1);
+
+      size_t dst_index = ((size_t) i * buffer_info.width + j) * buffer_info.channels;
+      size_t src_index = ((size_t) k * width + j) * src_channels;
+
+      buffer_info.bytes[dst_index] = str[src_index];
+      buffer_info.bytes[dst_index + 1] = str[src_index + 1];
+      buffer_info.bytes[dst_index + 2] = str[src_index + 2];
+      if (buffer_info.channels == 4) {
+        buffer_info.bytes[dst_index + 3] = src_channels == 4 ? str[src_index + 3] : 255;
       }
     }
   }
