@@ -119,15 +119,18 @@ local PROVINCE_DATA_FILE = "province_data.bin"
 local PROVINCE_DATA_COMPRESSED_FILE = "province_data.bin.deflate"
 local PREVIEW_FILE = "preview.png"
 local PREVIEW_HEIGHT = 256
+local PREVIEW_EMPTY_THRESHOLD = 5
 local PREVIEW_WATER_RGBA = {
 	math.floor(0.71 * 255 + 0.5),
 	math.floor(0.82 * 255 + 0.5),
 	math.floor(0.93 * 255 + 0.5),
 	255
 }
+local unpack_values = table.unpack or unpack
 local PREVIEW_LAND_PIXEL = string.char(255, 255, 255, 255)
 local PREVIEW_WATER_PIXEL = string.char(PREVIEW_WATER_RGBA[1], PREVIEW_WATER_RGBA[2], PREVIEW_WATER_RGBA[3], PREVIEW_WATER_RGBA[4])
 local PREVIEW_TRANSPARENT_PIXEL = string.char(0, 0, 0, 0)
+local PREVIEW_EMPTY_PIXEL = string.char(0, 0, 0, 255)
 
 local function should_log_export_step(i, n)
 	return i == 1 or i % 100 == 0 or i >= n - 5
@@ -230,17 +233,115 @@ local function scale_rgba_nearest(bytes, src_width, src_height, dst_width, dst_h
 	return table.concat(scaled)
 end
 
+local function rgba_table_to_string(rgba)
+	local chunks = {}
+	local chunk = {}
+	local chunk_size = 0
+
+	for i = 1, #rgba do
+		chunk_size = chunk_size + 1
+		chunk[chunk_size] = rgba[i]
+
+		if chunk_size == 1024 then
+			chunks[#chunks + 1] = string.char(unpack_values(chunk, 1, chunk_size))
+			chunk = {}
+			chunk_size = 0
+		end
+	end
+
+	if chunk_size > 0 then
+		chunks[#chunks + 1] = string.char(unpack_values(chunk, 1, chunk_size))
+	end
+
+	return table.concat(chunks)
+end
+
+local function is_preview_empty_rgb(r, g, b)
+	return r <= PREVIEW_EMPTY_THRESHOLD
+		and g <= PREVIEW_EMPTY_THRESHOLD
+		and b <= PREVIEW_EMPTY_THRESHOLD
+end
+
+local function is_preview_empty_pixel(rgba, index)
+	return (rgba[index + 3] or 0) ~= 0
+		and is_preview_empty_rgb(rgba[index] or 0, rgba[index + 1] or 0, rgba[index + 2] or 0)
+end
+
+local function fill_preview_empty_pixels(bytes, width, height)
+	local rgba = {}
+	for i = 1, #bytes do
+		rgba[i] = string.byte(bytes, i)
+	end
+
+	local scratch = {}
+	local has_progress = true
+
+	while has_progress do
+		has_progress = false
+
+		for i = 1, #rgba do
+			scratch[i] = rgba[i]
+		end
+
+		for y = 0, height - 1 do
+			for x = 0, width - 1 do
+				local index = (y * width + x) * 4 + 1
+				if is_preview_empty_pixel(rgba, index) then
+					local sum_r, sum_g, sum_b, count = 0, 0, 0, 0
+
+					for dy = -1, 1 do
+						local ny = y + dy
+						if ny >= 0 and ny < height then
+							for dx = -1, 1 do
+								local nx = x + dx
+								if (dx ~= 0 or dy ~= 0) and nx >= 0 and nx < width then
+									local neighbor_index = (ny * width + nx) * 4 + 1
+									local neighbor_alpha = rgba[neighbor_index + 3] or 0
+									if neighbor_alpha ~= 0 and not is_preview_empty_pixel(rgba, neighbor_index) then
+										sum_r = sum_r + (rgba[neighbor_index] or 0)
+										sum_g = sum_g + (rgba[neighbor_index + 1] or 0)
+										sum_b = sum_b + (rgba[neighbor_index + 2] or 0)
+										count = count + 1
+									end
+								end
+							end
+						end
+					end
+
+					if count > 0 then
+						scratch[index] = math.floor(sum_r / count + 0.5)
+						scratch[index + 1] = math.floor(sum_g / count + 0.5)
+						scratch[index + 2] = math.floor(sum_b / count + 0.5)
+						scratch[index + 3] = 255
+						has_progress = true
+					end
+				end
+			end
+		end
+
+		rgba, scratch = scratch, rgba
+	end
+
+	return rgba_table_to_string(rgba)
+end
+
 local function build_preview_rgba(bytes, width, height)
 	local preview = {}
 	local index = 1
+	local has_empty_pixels = false
 
 	for i = 0, width * height - 1 do
 		local src_index = i * 4 + 1
+		local r = string.byte(bytes, src_index) or 0
+		local g = string.byte(bytes, src_index + 1) or 0
 		local b = string.byte(bytes, src_index + 2) or 0
 		local a = string.byte(bytes, src_index + 3) or 0
 
 		if a == 0 then
 			preview[index] = PREVIEW_TRANSPARENT_PIXEL
+		elseif is_preview_empty_rgb(r, g, b) then
+			preview[index] = PREVIEW_EMPTY_PIXEL
+			has_empty_pixels = true
 		elseif b >= 225 then
 			preview[index] = PREVIEW_WATER_PIXEL
 		else
@@ -250,7 +351,7 @@ local function build_preview_rgba(bytes, width, height)
 		index = index + 1
 	end
 
-	return table.concat(preview)
+	return table.concat(preview), has_empty_pixels
 end
 
 local function generate_preview_png(self)
@@ -266,8 +367,11 @@ local function generate_preview_png(self)
 		return nil, "failed to prepare preview image data"
 	end
 
-	local preview_bytes = build_preview_rgba(bytes, src_width, src_height)
+	local preview_bytes, has_empty_pixels = build_preview_rgba(bytes, src_width, src_height)
 	local scaled_bytes = scale_rgba_nearest(preview_bytes, src_width, src_height, dst_width, dst_height)
+	if has_empty_pixels then
+		scaled_bytes = fill_preview_empty_pixels(scaled_bytes, dst_width, dst_height)
+	end
 	local png_data = png.encode_rgba(scaled_bytes, dst_width, dst_height)
 	if not png_data then
 		return nil, "failed to encode preview png"
