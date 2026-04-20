@@ -2,7 +2,7 @@ local gooey = require "gooey.gooey"
 local exported_map_format = require "scripts.exported_map_format"
 
 local MAP_EDITOR_TEXT = "Map editor"
-local CONVERT_TEXT = "Convert to new format"
+local CONVERT_TEXT = "Convert legacy map"
 
 local function set_map_editor_text(text)
 	gui.set_text(gui.get_node("map_editor_text"), text)
@@ -38,6 +38,9 @@ function on_input(self, action_id, action)
 			refresh_map_editor_button()
 			if not ok then
 				set_map_editor_text(CONVERT_TEXT)
+			else
+				msg.post("main:/go#main", "load_editor")
+				gui.set_enabled(gui.get_node("main"), false)
 			end
 		else
 			msg.post("main:/go#main", "load_editor")

@@ -1,4 +1,5 @@
 local camera = require "libs.orthographic.camera"
+local exported_map_format = require "scripts.exported_map_format"
 
 local offsety = 0
 local offsetx = 0
@@ -396,6 +397,9 @@ end
 
 local function finalize_export_metadata(self, n, water_provinces)
 	debug_log("finish_export:start", "provinces", n)
+	local metadata_defaults = exported_map_format.read_metadata_defaults()
+	local map_name = metadata_defaults.map_name or "map"
+	local display_name = metadata_defaults.display_name or "Map"
 	local province_data_info, compression_error = compress_province_data()
 	if not province_data_info then
 		debug_log("finish_export:province_data_compression:failed", compression_error)
@@ -420,6 +424,9 @@ local function finalize_export_metadata(self, n, water_provinces)
 		local t = {
 			num_of_provinces = n,
 			id = map_id,
+			map_name = map_name,
+			display_name = display_name,
+			name = display_name,
 			size = {
 				image_data.size.x,
 				image_data.size.y
@@ -456,7 +463,9 @@ local function finalize_export_metadata(self, n, water_provinces)
 		local game_data = {
 			custom_map = true,
 			map = map_id,
+			map_name = map_name,
 			id = "generated_scenario",
+			name = "Generated " .. display_name,
 			year = 0,
 			technology_lvl = 0,
 			player_land = "Civilization",
@@ -548,6 +557,16 @@ local function finalize_export_metadata(self, n, water_provinces)
 		debug_log("finish_export:adjacency_validation:done", "rows", #adjacency_list)
 	else
 		print("error validating file: adjacency.dat")
+	end
+	local package_path, package_err = exported_map_format.write_map_package({
+		map_name = map_name,
+		display_name = display_name
+	})
+	if not package_path then
+		debug_log("finish_export:package_failed", package_err)
+		print("error write map package:", package_err)
+	else
+		debug_log("finish_export:package_saved", package_path)
 	end
 	debug_log("finish_export:done")
 	return true

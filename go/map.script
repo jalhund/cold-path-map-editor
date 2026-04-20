@@ -2,6 +2,7 @@ local camera = require "libs.orthographic.camera"
 local check_click = require "scripts.check_click"
 local provinces = require "go.provinces"
 local debugdraw = require("debug-draw.debug-draw")
+local exported_map_format = require "scripts.exported_map_format"
 
 local offset_texts = {}
 
@@ -44,6 +45,12 @@ local last_province
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
+
+	local prepared, err = exported_map_format.prepare_map_directory()
+	if not prepared then
+		print("error prepare map directory:", err)
+		os.exit()
+	end
 
 	local file = io.open(IMAGE_DATA_PATH.."exported_map/map_info.json", "r")
 	if not file then

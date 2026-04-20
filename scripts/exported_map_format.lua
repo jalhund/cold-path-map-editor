@@ -1,11 +1,14 @@
 local M = {}
+
 local json = require "scripts.json"
 local lume = require "scripts.lume"
+local map_package = require "scripts.map_package"
 
 local RAW_PROVINCE_DATA_FILE = "province_data.bin"
 local COMPRESSED_PROVINCE_DATA_FILE = "province_data.bin.deflate"
 local LUMINANCE_STREAM = hash("luminance")
 local unpack_values = table.unpack or unpack
+local pack_current_exported_map
 
 local function get_image_data_path()
 	return IMAGE_DATA_PATH or ""
@@ -209,8 +212,67 @@ local function compress_province_data(raw_path, compressed_path)
 	}
 end
 
-function M.read_map_info()
+local function read_current_map_info()
 	return read_json_file(get_map_info_path())
+end
+
+local function read_current_scenario()
+	local scenario_path = get_exported_map_path() .. "scenario.json"
+	return read_json_file(scenario_path)
+end
+
+local function sort_map_package_files(files)
+	table.sort(files, function(a, b)
+		local a_name = a:lower()
+		local b_name = b:lower()
+		if a_name == "exported_map.map" then
+			return true
+		end
+		if b_name == "exported_map.map" then
+			return false
+		end
+		return a_name < b_name
+	end)
+end
+
+function M.find_map_package_path()
+	local root = get_image_data_path()
+	if not root or root == "" then
+		root = ""
+	end
+	local scan_root = root ~= "" and root or "."
+
+	local files = {}
+	for entry in lfs.dir(scan_root) do
+		if entry ~= "." and entry ~= ".." and entry:match("%.map$") then
+			local path = root .. entry
+			if file_exists(path, "rb") then
+				files[#files + 1] = entry
+			end
+		end
+	end
+
+	if #files == 0 then
+		return nil
+	end
+
+	sort_map_package_files(files)
+	return root .. files[1], #files
+end
+
+function M.read_map_info()
+	local map_data = read_current_map_info()
+	if map_data then
+		return map_data
+	end
+
+	local package_path = M.find_map_package_path()
+	if not package_path then
+		return nil
+	end
+
+	local package_map_data = map_package.read_map_info(package_path)
+	return package_map_data
 end
 
 function M.is_new_format(map_data)
@@ -251,7 +313,7 @@ function M.cleanup_legacy_artifacts()
 end
 
 function M.convert_legacy_to_new()
-	local map_data, err = M.read_map_info()
+	local map_data, err = read_current_map_info()
 	if not map_data then
 		return nil, err
 	end
@@ -341,7 +403,154 @@ function M.convert_legacy_to_new()
 		return nil, cleanup_err
 	end
 
+	local packed = pack_current_exported_map()
+	if packed and type(packed) == "table" and packed.path then
+		map_data.package_path = packed.path
+	end
+
 	return true, map_data
+end
+
+function M.detect_format()
+	local current_map_data = read_current_map_info()
+	if current_map_data then
+		if M.is_legacy_format(current_map_data) then
+			return {
+				kind = "legacy",
+				map_data = current_map_data
+			}
+		end
+
+		if M.is_new_format(current_map_data) then
+			return {
+				kind = "folder",
+				map_data = current_map_data
+			}
+		end
+	end
+
+	local package_path = M.find_map_package_path()
+	if package_path then
+		local package_map_data, manifest_or_err = map_package.read_map_info(package_path)
+		return {
+			kind = "package",
+			map_data = package_map_data,
+			package_path = package_path,
+			error = package_map_data and nil or manifest_or_err
+		}
+	end
+
+	return {
+		kind = "missing",
+		map_data = current_map_data
+	}
+end
+
+function M.get_format_kind()
+	return M.detect_format().kind
+end
+
+local function default_map_name()
+	return "map"
+end
+
+pack_current_exported_map = function(options)
+	local map_data = read_current_map_info()
+	if not map_data or not M.is_new_format(map_data) then
+		return nil, "Current folder map is missing"
+	end
+
+	local metadata = M.read_metadata_defaults()
+	local map_name = (options and options.map_name)
+		or map_data.map_name
+		or metadata.map_name
+		or default_map_name()
+	local output_path = (options and options.output_path)
+		or M.build_map_package_path(map_name)
+
+	return map_package.pack_map_directory(get_exported_map_path(), output_path, {
+		map_name = map_name,
+		display_name = (options and options.display_name) or map_data.display_name or metadata.display_name
+	})
+end
+
+function M.read_metadata_defaults()
+	local detected = M.detect_format()
+	local map_data = detected.map_data or {}
+	local scenario_data = nil
+
+	if detected.kind == "folder" or detected.kind == "legacy" then
+		scenario_data = read_current_scenario()
+	elseif detected.kind == "package" and detected.package_path then
+		local unpacked = map_package.read_package(detected.package_path)
+		if unpacked then
+			local scenario_raw = map_package.read_section(unpacked, "generated_scenario")
+			if scenario_raw then
+				local ok, decoded = pcall(json.decode, scenario_raw)
+				if ok and type(decoded) == "table" then
+					scenario_data = decoded
+				end
+			end
+		end
+	end
+
+	local map_name = map_data.map_name
+		or (scenario_data and scenario_data.map_name)
+		or default_map_name()
+	local display_name = map_data.display_name
+		or map_data.name
+		or (scenario_data and scenario_data.name)
+		or map_package.prettify_map_name(map_name)
+
+	return {
+		map_name = map_name,
+		display_name = display_name
+	}
+end
+
+function M.prepare_map_directory()
+	local detected = M.detect_format()
+
+	if detected.kind == "legacy" then
+		return M.convert_legacy_to_new()
+	end
+
+	if detected.kind == "package" then
+		if not detected.package_path then
+			return nil, "Map package not found"
+		end
+
+		local unpacked, err = map_package.unpack_to_directory(detected.package_path, get_exported_map_path())
+		if not unpacked then
+			return nil, err
+		end
+
+		return true, unpacked.map_info
+	end
+
+	if detected.kind == "folder" then
+		return true, detected.map_data
+	end
+
+	return nil, "Map data not found"
+end
+
+function M.build_map_package_path(map_name)
+	return map_package.build_default_package_path(get_image_data_path(), map_name)
+end
+
+function M.write_map_package(options)
+	local prepared, map_data_or_err = M.prepare_map_directory()
+	if not prepared then
+		return nil, map_data_or_err
+	end
+
+	local packed, err = pack_current_exported_map(options)
+	if not packed then
+		return nil, err
+	end
+
+	return packed.path, packed
 end
 
 return M

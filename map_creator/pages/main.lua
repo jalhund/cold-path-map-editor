@@ -14,16 +14,24 @@ end
 
 local set_page
 local LOAD_MAP_TEXT = "Load map"
-local CONVERT_MAP_TEXT = "Convert to new format"
+local CONVERT_MAP_TEXT = "Convert legacy map"
+local LOAD_PACKAGE_TEXT = "Load .map"
 
 local function set_load_map_text(text)
 	gui.set_text(gui.get_node("load_map_text"), text)
 end
 
 local function refresh_load_map_button(self)
-	local map_data = exported_map_format.read_map_info()
-	self.has_legacy_exported_map = exported_map_format.is_legacy_format(map_data)
-	set_load_map_text(self.has_legacy_exported_map and CONVERT_MAP_TEXT or LOAD_MAP_TEXT)
+	local kind = exported_map_format.get_format_kind()
+	self.has_legacy_exported_map = kind == "legacy"
+	self.has_map_package = kind == "package"
+	if self.has_legacy_exported_map then
+		set_load_map_text(CONVERT_MAP_TEXT)
+	elseif self.has_map_package then
+		set_load_map_text(LOAD_PACKAGE_TEXT)
+	else
+		set_load_map_text(LOAD_MAP_TEXT)
+	end
 end
 
 local function load_map_into_editor(map_data)
@@ -95,18 +103,24 @@ function M.on_input(self, action_id, action)
 		msg.post("image:/go#image", "export_map")
 	end, update_button_menu)
 	gooey.button("load_map/outline", action_id, action, function()
-		local map_data = exported_map_format.read_map_info()
-		if exported_map_format.is_legacy_format(map_data) then
-			gui.set_text(gui.get_node("progress_test"), "Converting exported_map to new format...")
-			local ok, converted_or_err = exported_map_format.convert_legacy_to_new()
-			if ok then
-				gui.set_text(gui.get_node("progress_test"), "Map converted to new format")
-				refresh_load_map_button(self)
-			else
-				gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(converted_or_err))
+		local kind = exported_map_format.get_format_kind()
+		if kind == "legacy" then
+			gui.set_text(gui.get_node("progress_test"), "Converting legacy exported_map...")
+		elseif kind == "package" then
+			gui.set_text(gui.get_node("progress_test"), "Unpacking map package...")
+		end
+
+		local ok, map_data_or_err = exported_map_format.prepare_map_directory()
+		if ok then
+			if kind == "legacy" then
+				gui.set_text(gui.get_node("progress_test"), "Legacy map converted")
+			elseif kind == "package" then
+				gui.set_text(gui.get_node("progress_test"), "Map package loaded")
 			end
-		elseif exported_map_format.is_new_format(map_data) then
-			load_map_into_editor(map_data)
+			refresh_load_map_button(self)
+			load_map_into_editor(map_data_or_err)
+		else
+			gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(map_data_or_err))
 		end
 	end, update_button_menu)
 end
