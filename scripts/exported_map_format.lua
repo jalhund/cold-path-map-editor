@@ -22,6 +22,10 @@ local function get_map_info_path()
 	return get_exported_map_path() .. "map_info.json"
 end
 
+local function get_scenario_path()
+	return get_exported_map_path() .. "scenario.json"
+end
+
 local function read_text_file(path)
 	local file = io.open(path, "r")
 	if not file then
@@ -66,6 +70,60 @@ local function file_exists(path, mode)
 
 	file:close()
 	return true
+end
+
+local function safe_open_file(path, mode)
+	local file = io.open(path, mode)
+	if file then
+		return file
+	end
+
+	local normalized = string.gsub(path, "/", "\\")
+	file = io.open(normalized, mode)
+	if file then
+		return file
+	end
+
+	normalized = string.gsub(path, "\\", "/")
+	return io.open(normalized, mode)
+end
+
+local function copy_file(source_path, target_path)
+	local source = safe_open_file(source_path, "rb")
+	if not source then
+		return nil, "Error open file: " .. tostring(source_path)
+	end
+
+	local data = source:read("*a")
+	source:close()
+
+	local target = safe_open_file(target_path, "wb")
+	if not target then
+		return nil, "Error write file: " .. tostring(target_path)
+	end
+
+	target:write(data)
+	target:close()
+	return true
+end
+
+local function copy_preview_next_to_package(package_path, packed)
+	local map_info = packed and packed.map_info or nil
+	local preview_file = map_info and map_info.preview_file or nil
+	if not package_path or package_path == "" or not preview_file or preview_file == "" then
+		return true
+	end
+
+	local source_path = get_exported_map_path() .. preview_file
+	if not file_exists(source_path, "rb") then
+		return true
+	end
+
+	local normalized_package_path = tostring(package_path):gsub("\\", "/")
+	local package_dir = normalized_package_path:match("^(.*)/[^/]+$") or ""
+	local target_path = (package_dir ~= "" and (package_dir .. "/") or "") .. "preview.png"
+
+	return copy_file(source_path, target_path)
 end
 
 local function remove_path(path)
@@ -217,8 +275,13 @@ local function read_current_map_info()
 end
 
 local function read_current_scenario()
-	local scenario_path = get_exported_map_path() .. "scenario.json"
-	return read_json_file(scenario_path)
+	return read_json_file(get_scenario_path())
+end
+
+local function get_file_stem(path)
+	local normalized = tostring(path or ""):gsub("\\", "/")
+	local file_name = normalized:match("([^/]+)$") or normalized
+	return file_name:match("^(.*)%.map$") or file_name
 end
 
 local function sort_map_package_files(files)
@@ -393,6 +456,18 @@ function M.convert_legacy_to_new()
 	map_data.province_data_compressed_size = province_data_info.compressed_size
 	map_data.provinces = provinces
 
+	local scenario = read_current_scenario()
+	if scenario then
+		scenario.map = map_data.id
+		if map_data.map_name and map_data.map_name ~= "" then
+			scenario.map_name = map_data.map_name
+		end
+		local scenario_ok, scenario_err = write_json_file(get_scenario_path(), scenario)
+		if not scenario_ok then
+			return nil, scenario_err
+		end
+	end
+
 	local ok, write_err = write_json_file(get_map_info_path(), map_data)
 	if not ok then
 		return nil, write_err
@@ -454,23 +529,80 @@ local function default_map_name()
 	return "map"
 end
 
+local function get_package_name_defaults(package_path)
+	if not package_path or package_path == "" then
+		return nil, nil
+	end
+
+	local stem = map_package.sanitize_file_stem(get_file_stem(package_path))
+	return stem, map_package.prettify_map_name(stem)
+end
+
+function M.resolve_package_target(options)
+	local output_path = options and options.output_path or nil
+	if not output_path or output_path == "" then
+		output_path = M.find_map_package_path()
+	end
+
+	local existing_package_map_name, existing_package_display_name = get_package_name_defaults(output_path)
+	if output_path and output_path ~= "" then
+		return {
+			output_path = output_path,
+			map_name = existing_package_map_name or default_map_name(),
+			display_name = (options and options.display_name) or existing_package_display_name or map_package.prettify_map_name(existing_package_map_name)
+		}
+	end
+
+	local current_map_data = read_current_map_info() or {}
+	local current_scenario = read_current_scenario() or {}
+	local desired_name = (options and options.map_name)
+		or current_map_data.map_name
+		or current_scenario.map_name
+		or default_map_name()
+	local map_name = map_package.sanitize_file_stem(desired_name)
+
+	return {
+		output_path = M.build_map_package_path(map_name),
+		map_name = map_name,
+		display_name = (options and options.display_name)
+			or current_map_data.display_name
+			or current_map_data.name
+			or current_scenario.name
+			or map_package.prettify_map_name(map_name)
+	}
+end
+
+local function sync_exported_map_identity(map_name, display_name)
+	local map_info = read_current_map_info()
+	if map_info then
+		map_info.map_name = map_name
+		if not map_info.display_name or map_info.display_name == "" then
+			map_info.display_name = display_name
+		end
+		if not map_info.name or map_info.name == "" then
+			map_info.name = map_info.display_name
+		end
+		write_json_file(get_map_info_path(), map_info)
+	end
+
+	local scenario = read_current_scenario()
+	if scenario then
+		scenario.map_name = map_name
+		write_json_file(get_scenario_path(), scenario)
+	end
+end
+
 pack_current_exported_map = function(options)
 	local map_data = read_current_map_info()
 	if not map_data or not M.is_new_format(map_data) then
 		return nil, "Current folder map is missing"
 	end
 
-	local metadata = M.read_metadata_defaults()
-	local map_name = (options and options.map_name)
-		or map_data.map_name
-		or metadata.map_name
-		or default_map_name()
-	local output_path = (options and options.output_path)
-		or M.build_map_package_path(map_name)
+	local target = M.resolve_package_target(options)
 
-	return map_package.pack_map_directory(get_exported_map_path(), output_path, {
-		map_name = map_name,
-		display_name = (options and options.display_name) or map_data.display_name or metadata.display_name
+	return map_package.pack_map_directory(get_exported_map_path(), target.output_path, {
+		map_name = target.map_name,
+		display_name = target.display_name
 	})
 end
 
@@ -478,6 +610,8 @@ function M.read_metadata_defaults()
 	local detected = M.detect_format()
 	local map_data = detected.map_data or {}
 	local scenario_data = nil
+	local package_path = M.find_map_package_path()
+	local package_map_name, package_display_name = get_package_name_defaults(package_path)
 
 	if detected.kind == "folder" or detected.kind == "legacy" then
 		scenario_data = read_current_scenario()
@@ -494,12 +628,14 @@ function M.read_metadata_defaults()
 		end
 	end
 
-	local map_name = map_data.map_name
+	local map_name = package_map_name
+		or map_data.map_name
 		or (scenario_data and scenario_data.map_name)
 		or default_map_name()
 	local display_name = map_data.display_name
 		or map_data.name
 		or (scenario_data and scenario_data.name)
+		or package_display_name
 		or map_package.prettify_map_name(map_name)
 
 	return {
@@ -525,6 +661,15 @@ function M.prepare_map_directory()
 			return nil, err
 		end
 
+		local package_map_name, package_display_name = get_package_name_defaults(detected.package_path)
+		if package_map_name then
+			sync_exported_map_identity(package_map_name, package_display_name or map_package.prettify_map_name(package_map_name))
+			unpacked.map_info.map_name = package_map_name
+			if not unpacked.map_info.display_name or unpacked.map_info.display_name == "" then
+				unpacked.map_info.display_name = package_display_name
+			end
+		end
+
 		return true, unpacked.map_info
 	end
 
@@ -548,6 +693,11 @@ function M.write_map_package(options)
 	local packed, err = pack_current_exported_map(options)
 	if not packed then
 		return nil, err
+	end
+
+	local preview_copied, preview_err = copy_preview_next_to_package(packed.path, packed)
+	if not preview_copied then
+		return nil, preview_err
 	end
 
 	return packed.path, packed
