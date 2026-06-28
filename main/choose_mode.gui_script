@@ -1,5 +1,6 @@
 local gooey = require "gooey.gooey"
 local exported_map_format = require "scripts.exported_map_format"
+local cli = require "scripts.cli"
 
 local MAP_EDITOR_TEXT = "Map editor"
 local CONVERT_LEGACY_TEXT = "Convert legacy map"
@@ -36,6 +37,10 @@ end
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
+	if cli.is_enabled() then
+		gui.set_enabled(gui.get_node("main"), false)
+		return
+	end
 	refresh_map_editor_button()
 end
 

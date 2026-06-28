@@ -1,6 +1,7 @@
 require "scripts.utils"
 lume = require "scripts.lume"
 json = require "scripts.json"
+local cli = require "scripts.cli"
 
 -- You can specify path. Example: "D:/"
 -- I highly recommend changing this value to a value outside the project folder
@@ -31,10 +32,22 @@ function init(self)
 			IMAGE_DATA_PATH = "/mnt/sdcard/Android/data/com.DenisMakhortov.ColdPathMapEditor/"
 		end
 	end
+
+	IMAGE_DATA_PATH = cli.resolve_image_data_path(IMAGE_DATA_PATH)
 	
 	sys.set_error_handler(my_error_handler)
 
 	math.randomseed(tonumber(hash_to_hex(hash(tostring({}))):sub(4, 8), 16))
+
+	if cli.is_enabled() then
+		local ok, err = cli.run()
+		if not ok then
+			print("CLI error:", err)
+			debug_log("CLI error:", err)
+			os.exit(1)
+		end
+		os.exit(0)
+	end
 
 	-- local test = require "scripts.test.generate_color"
 	-- test.start()

@@ -3,6 +3,10 @@ path_settings {
   profile: "Luminance"
 }
 path_settings {
+  path: "/atlas/clan_maps/*.atlas"
+  profile: "Luminance"
+}
+path_settings {
   path: "**"
   profile: "Default"
 }

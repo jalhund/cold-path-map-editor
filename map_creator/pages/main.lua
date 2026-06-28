@@ -3,6 +3,7 @@ local M = {}
 local gooey = require "gooey.gooey"
 local exported_map_format = require "scripts.exported_map_format"
 local province_binary = require "scripts.province_binary"
+local clan_map_atlas_exporter = require "scripts.clan_map_atlas_exporter"
 
 local function update_button_menu(button)
 	if button.pressed_now then
@@ -101,6 +102,21 @@ function M.on_input(self, action_id, action)
 		self.exporting = true
 		drawpixels.register_progress_callback(update_progress)
 		msg.post("image:/go#image", "export_map")
+	end, update_button_menu)
+	gooey.button("convert_to_atlas/outline", action_id, action, function()
+		self.exporting = true
+		gui.set_text(gui.get_node("progress_test"), "Converting clan map atlas...")
+		local ok, result, err = pcall(clan_map_atlas_exporter.convert_current_map_to_atlas, function(i, total)
+			if i == 1 or i == total or i % 100 == 0 then
+				gui.set_text(gui.get_node("progress_test"), "Clan atlas progress: " .. i .. "/" .. total)
+			end
+		end)
+		self.exporting = false
+		if ok and result then
+			gui.set_text(gui.get_node("progress_test"), "Clan atlas saved: " .. result.map)
+		else
+			gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(ok and err or result))
+		end
 	end, update_button_menu)
 	gooey.button("load_map/outline", action_id, action, function()
 		local kind = exported_map_format.get_format_kind()
