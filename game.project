@@ -1,6 +1,6 @@
 [project]
 title = Cold Path Map Editor
-version = 1.0.9
+version = 1.1.0
 dependencies#0 = https://github.com/rgrams/debug-draw/archive/master.zip
 dependencies#1 = https://github.com/britzl/defold-png/archive/refs/tags/1.2.2.zip
 
@@ -19,9 +19,9 @@ width = 1280
 height = 720
 
 [cli]
-convert =
-data_path =
-output_path =
+convert = 
+data_path = 
+output_path = 
 
 [ios]
 app_icon_120x120 = /assets/app_icons/icon_120.png
