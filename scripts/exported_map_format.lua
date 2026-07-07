@@ -7,6 +7,11 @@ local map_package = require "scripts.map_package"
 local RAW_PROVINCE_DATA_FILE = "province_data.bin"
 local COMPRESSED_PROVINCE_DATA_FILE = "province_data.bin.deflate"
 local LUMINANCE_STREAM = hash("luminance")
+
+-- Province layout versions:
+--   nil / 1 -> legacy "fixed bucket" sizes (124/252/508/1020/2044) with empty padding
+--   2       -> tight per-province bounding box (no padding), position = box center
+local PROVINCE_LAYOUT_VERSION = 2
 local unpack_values = table.unpack or unpack
 local pack_current_exported_map
 
@@ -375,6 +380,221 @@ function M.cleanup_legacy_artifacts()
 	return true
 end
 
+-- Find the first/last non-zero byte in a row substring (1-based, inclusive).
+-- Returns nil when the whole row is empty (all \0).
+local function row_content_bounds(row)
+	local first = row:find("[^%z]")
+	if not first then
+		return nil
+	end
+	local last = #row - row:reverse():find("[^%z]") + 1
+	return first, last
+end
+
+-- Crop a padded province to the tight bounding box of its non-empty pixels
+-- (union of generated_data and blurred_data, so the blur halo is kept) and
+-- recompute size + position so every retained pixel keeps the exact same
+-- absolute coordinate the game already renders it at.
+--
+-- Convention (identical to the native drawpixels export_province):
+--   * data is row-major, generated_size == blurred_size == width * height
+--   * position is the box center, box top-left = position - size / 2
+--   * a local pixel (col, row) sits at (position.x - w/2 + col, position.y - h/2 + row)
+--   * width and height are kept even so position stays integer
+local function crop_province_to_content(generated_data, blurred_data, width, height, position_x, position_y)
+	local min_col, max_col = width, -1
+	local min_row, max_row = height, -1
+
+	for row = 0, height - 1 do
+		local base = row * width
+		local generated_row = generated_data:sub(base + 1, base + width)
+		local blurred_row = blurred_data:sub(base + 1, base + width)
+
+		local gf, gl = row_content_bounds(generated_row)
+		local bf, bl = row_content_bounds(blurred_row)
+
+		local first = gf
+		if bf and (not first or bf < first) then first = bf end
+		local last = gl
+		if bl and (not last or bl > last) then last = bl end
+
+		if first then
+			local c0, c1 = first - 1, last - 1
+			if c0 < min_col then min_col = c0 end
+			if c1 > max_col then max_col = c1 end
+			if row < min_row then min_row = row end
+			if row > max_row then max_row = row end
+		end
+	end
+
+	-- Fully empty province (should not happen) -> leave it untouched.
+	if max_row < 0 then
+		return generated_data, blurred_data, width, height, position_x, position_y
+	end
+
+	-- Keep sizes even (mirrors export_province), expanding into existing padding.
+	if (max_col - min_col + 1) % 2 == 1 then
+		if min_col > 0 then min_col = min_col - 1 else max_col = max_col + 1 end
+	end
+	if (max_row - min_row + 1) % 2 == 1 then
+		if min_row > 0 then min_row = min_row - 1 else max_row = max_row + 1 end
+	end
+
+	local new_width = max_col - min_col + 1
+	local new_height = max_row - min_row + 1
+
+	local generated_chunks = {}
+	local blurred_chunks = {}
+	for row = min_row, max_row do
+		local base = row * width
+		generated_chunks[#generated_chunks + 1] = generated_data:sub(base + min_col + 1, base + max_col + 1)
+		blurred_chunks[#blurred_chunks + 1] = blurred_data:sub(base + min_col + 1, base + max_col + 1)
+	end
+
+	-- width/height are kept even so these stay whole; floor guards against any
+	-- float drift and keeps the JSON integer like the native export.
+	local new_position_x = math.floor((position_x - width / 2) + min_col + new_width / 2)
+	local new_position_y = math.floor((position_y - height / 2) + min_row + new_height / 2)
+
+	return table.concat(generated_chunks), table.concat(blurred_chunks),
+		new_width, new_height, new_position_x, new_position_y
+end
+
+-- Read + inflate the province_data blob of the current (new-format) folder map.
+local function read_new_format_province_blob(map_data)
+	local path = get_exported_map_path() .. (map_data.province_data_file or COMPRESSED_PROVINCE_DATA_FILE)
+	local file = safe_open_file(path, "rb")
+	if not file then
+		return nil, "Error open file: " .. path
+	end
+
+	local data = file:read("*a")
+	file:close()
+
+	if map_data.province_data_compression == "zlib" then
+		local zlib_inflate = zlib and zlib.inflate
+		if not zlib_inflate then
+			return nil, "zlib.inflate unavailable"
+		end
+		local ok, inflated = pcall(zlib_inflate, data)
+		if not ok or not inflated then
+			return nil, "Error inflate province data: " .. tostring(inflated)
+		end
+		data = inflated
+	elseif map_data.province_data_compression and map_data.province_data_compression ~= "" then
+		return nil, "Unsupported province data compression: " .. tostring(map_data.province_data_compression)
+	end
+
+	if map_data.province_data_uncompressed_size and #data ~= map_data.province_data_uncompressed_size then
+		return nil, "Error province data size mismatch"
+	end
+
+	return data
+end
+
+function M.get_province_layout_version(map_data)
+	if type(map_data) ~= "table" then
+		return nil
+	end
+	return map_data.province_layout_version or 1
+end
+
+-- A new-format map still using the legacy fixed-bucket padding can be shrunk.
+function M.needs_layout_optimization(map_data)
+	if type(map_data) ~= "table" or not M.is_new_format(map_data) then
+		return false
+	end
+	return (map_data.province_layout_version or 1) < PROVINCE_LAYOUT_VERSION
+end
+
+-- Re-crop every province of an already exported new-format map to its tight
+-- bounding box, rewrite the province_data blob and stamp the layout version.
+-- Operates on the current unpacked exported_map/ folder.
+function M.optimize_province_layout()
+	local map_data, err = read_current_map_info()
+	if not map_data then
+		return nil, err
+	end
+
+	if not M.is_new_format(map_data) then
+		return nil, "Province layout optimization requires a new-format map"
+	end
+
+	if (map_data.province_layout_version or 1) >= PROVINCE_LAYOUT_VERSION then
+		return true, map_data
+	end
+
+	local blob, blob_err = read_new_format_province_blob(map_data)
+	if not blob then
+		return nil, blob_err
+	end
+
+	local exported_map_path = get_exported_map_path()
+	local raw_path = exported_map_path .. RAW_PROVINCE_DATA_FILE
+	local raw_file = io.open(raw_path, "wb")
+	if not raw_file then
+		return nil, "Error create file: " .. raw_path
+	end
+
+	local offset = 0
+	for i = 1, map_data.num_of_provinces do
+		local province = map_data.provinces[i]
+		if not province or type(province.size) ~= "table" or type(province.position) ~= "table" then
+			raw_file:close()
+			os.remove(raw_path)
+			return nil, "Invalid province metadata: " .. i
+		end
+
+		local generated_size = province.generated_size
+		local blurred_size = province.blurred_size
+		local generated_data = blob:sub(offset + 1, offset + generated_size)
+		offset = offset + generated_size
+		local blurred_data = blob:sub(offset + 1, offset + blurred_size)
+		offset = offset + blurred_size
+
+		if #generated_data ~= generated_size or #blurred_data ~= blurred_size then
+			raw_file:close()
+			os.remove(raw_path)
+			return nil, "Error read province_data for province " .. i
+		end
+
+		local new_generated, new_blurred, new_width, new_height, new_position_x, new_position_y =
+			crop_province_to_content(generated_data, blurred_data, province.size[1], province.size[2],
+				province.position[1], province.position[2])
+
+		province.size = { new_width, new_height }
+		province.position = { new_position_x, new_position_y }
+		province.generated_size = #new_generated
+		province.blurred_size = #new_blurred
+
+		raw_file:write(new_generated)
+		raw_file:write(new_blurred)
+	end
+
+	raw_file:close()
+
+	local province_data_info, compression_err = compress_province_data(
+		raw_path,
+		exported_map_path .. COMPRESSED_PROVINCE_DATA_FILE
+	)
+	if not province_data_info then
+		return nil, compression_err
+	end
+
+	map_data.province_data_file = COMPRESSED_PROVINCE_DATA_FILE
+	map_data.province_data_compression = "zlib"
+	map_data.province_data_uncompressed_size = province_data_info.uncompressed_size
+	map_data.province_data_compressed_size = province_data_info.compressed_size
+	map_data.province_layout_version = PROVINCE_LAYOUT_VERSION
+
+	local ok, write_err = write_json_file(get_map_info_path(), map_data)
+	if not ok then
+		return nil, write_err
+	end
+
+	return true, map_data
+end
+
 function M.convert_legacy_to_new()
 	local map_data, err = read_current_map_info()
 	if not map_data then
@@ -428,12 +648,21 @@ function M.convert_legacy_to_new()
 			return nil, blurred_err
 		end
 
-		province.generated_size = #generated_data
-		province.blurred_size = #blurred_data
+		-- Old maps were exported with fixed bucket sizes padded with empty
+		-- pixels. Crop to the tight bounding box right away so the converted
+		-- map is already in the optimized layout.
+		local cropped_generated, cropped_blurred, new_width, new_height, new_position_x, new_position_y =
+			crop_province_to_content(generated_data, blurred_data, width, height,
+				province.position[1], province.position[2])
+
+		province.size = { new_width, new_height }
+		province.position = { new_position_x, new_position_y }
+		province.generated_size = #cropped_generated
+		province.blurred_size = #cropped_blurred
 		provinces[i] = province
 
-		raw_file:write(generated_data)
-		raw_file:write(blurred_data)
+		raw_file:write(cropped_generated)
+		raw_file:write(cropped_blurred)
 	end
 
 	raw_file:close()
@@ -454,6 +683,7 @@ function M.convert_legacy_to_new()
 	map_data.province_data_compression = "zlib"
 	map_data.province_data_uncompressed_size = province_data_info.uncompressed_size
 	map_data.province_data_compressed_size = province_data_info.compressed_size
+	map_data.province_layout_version = PROVINCE_LAYOUT_VERSION
 	map_data.provinces = provinces
 
 	local scenario = read_current_scenario()
@@ -688,6 +918,14 @@ function M.write_map_package(options)
 	local prepared, map_data_or_err = M.prepare_map_directory()
 	if not prepared then
 		return nil, map_data_or_err
+	end
+
+	-- Shrink padded (legacy layout) maps before packing. No-op for maps that
+	-- are already on the tight layout, so this stays safe for every caller
+	-- (fresh export, legacy conversion, CLI, re-pack).
+	local optimized, optimize_err = M.optimize_province_layout()
+	if not optimized then
+		return nil, optimize_err
 	end
 
 	local packed, err = pack_current_exported_map(options)

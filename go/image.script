@@ -427,6 +427,8 @@ local function finalize_export_metadata(self, n, water_provinces)
 			map_name = map_name,
 			display_name = display_name,
 			name = display_name,
+			-- Native export already writes tight per-province bounding boxes.
+			province_layout_version = 2,
 			size = {
 				image_data.size.x,
 				image_data.size.y

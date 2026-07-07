@@ -17,16 +17,24 @@ local set_page
 local LOAD_MAP_TEXT = "Load map"
 local CONVERT_MAP_TEXT = "Convert legacy map"
 local LOAD_PACKAGE_TEXT = "Load .map"
+local OPTIMIZE_MAP_TEXT = "Optimize .map"
 
 local function set_load_map_text(text)
 	gui.set_text(gui.get_node("load_map_text"), text)
 end
 
 local function refresh_load_map_button(self)
-	local kind = exported_map_format.get_format_kind()
+	local detected = exported_map_format.detect_format()
+	local kind = detected.kind
 	self.has_legacy_exported_map = kind == "legacy"
 	self.has_map_package = kind == "package"
-	if self.has_legacy_exported_map then
+	-- A package/folder map still on the old padded layout can be shrunk in place.
+	self.needs_optimization = (kind == "package" or kind == "folder")
+		and exported_map_format.needs_layout_optimization(detected.map_data)
+
+	if self.needs_optimization then
+		set_load_map_text(OPTIMIZE_MAP_TEXT)
+	elseif self.has_legacy_exported_map then
 		set_load_map_text(CONVERT_MAP_TEXT)
 	elseif self.has_map_package then
 		set_load_map_text(LOAD_PACKAGE_TEXT)
@@ -119,6 +127,33 @@ function M.on_input(self, action_id, action)
 		end
 	end, update_button_menu)
 	gooey.button("load_map/outline", action_id, action, function()
+		if self.needs_optimization then
+			gui.set_text(gui.get_node("progress_test"), "Optimizing province layout...")
+
+			local prepared, prepare_err = exported_map_format.prepare_map_directory()
+			if not prepared then
+				gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(prepare_err))
+				return
+			end
+
+			local optimized, optimize_err = exported_map_format.optimize_province_layout()
+			if not optimized then
+				gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(optimize_err))
+				return
+			end
+
+			local packed_path, pack_err = exported_map_format.write_map_package()
+			if not packed_path then
+				gui.set_text(gui.get_node("progress_test"), "Error: " .. tostring(pack_err))
+				return
+			end
+
+			refresh_load_map_button(self)
+			load_map_into_editor(optimized)
+			gui.set_text(gui.get_node("progress_test"), "Map optimized and repacked")
+			return
+		end
+
 		local kind = exported_map_format.get_format_kind()
 		if kind == "legacy" then
 			gui.set_text(gui.get_node("progress_test"), "Converting legacy exported_map...")
